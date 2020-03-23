@@ -210,7 +210,7 @@ Printer is a function such as #'format or #'message"
          (wi-type (alist-get 'System\.WorkItemType fields))
          (wi-state (alist-get 'System\.State fields))
          (assigned-to (alist-get 'displayName (alist-get 'System\.AssignedTo fields))))
-    (funcall printer "%s%s: %s  [%s]   <%s>        %s" prefix wi-type label id wi-state assigned-to)))
+    (funcall printer "%s %s  [%s]   <%s>        %s" prefix label id wi-state assigned-to)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Extract relation information
@@ -338,7 +338,7 @@ Return a list containing the results of each application of FUNC, in the order p
    teams))
 
 (defun print-single-team-and-epics (store team-and-epics)
-  (az-devops/buffer-insert-ln "* Team: %s" (alist-get 'name team-and-epics))
+  (az-devops/buffer-insert-ln "* %s" (alist-get 'name team-and-epics))
   (let ((epics (alist-get 'epics team-and-epics)))
     (mapcar
      (lambda (epic)
