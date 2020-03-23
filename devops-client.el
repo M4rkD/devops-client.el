@@ -390,6 +390,13 @@ Return a list containing the results of each application of FUNC, in the order p
   (az-devops/fetch-all-relations az-devops/wi-store)
   (az-devops/fetch-all-relations az-devops/wi-store))
 
+(defun devops-refresh ()
+  (interactive)
+  (setq az-devops/wi-store (az-devops/new-store))
+  (devops-fetch-all)
+(devops)
+  )
+
 
   (defun devops ()
     (interactive)
