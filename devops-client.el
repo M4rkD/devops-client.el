@@ -379,7 +379,8 @@ Return a list containing the results of each application of FUNC, in the order p
     (interactive)
     (switch-to-buffer az-devops/buffer)
     (print-all-teams-and-epics az-devops/wi-store
-                               az-devops/teams-and-epics))
+                               az-devops/teams-and-epics)
+    (org-mode))
 
 
 (provide 'devops)
