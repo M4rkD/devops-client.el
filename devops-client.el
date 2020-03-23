@@ -32,10 +32,13 @@
 (defvar az-devops/query-chunk-size 200
   "The maximum number of work items to fetch in one go.")
 
-(defvar az-devops/wi-store (ht-create)
+(defvar az-devops/wi-store (az-devops/new-store)
   "Default work item store.")
 
 (defvar az-devops/buffer "*devops*")
+
+(defun az-devops/new-store ()
+  (ht-create))
 
 (defun az-devops/dispatch-get-request-without-parser (uri)
   "Dispatch GET request to endpoint URI (without parsing).
