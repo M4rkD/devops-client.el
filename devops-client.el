@@ -125,6 +125,27 @@ of urls to fetch that list of IDs"
      (not (ht-contains? store key)))
    ids))
 
+(defun az-devops/work-item-parse (work-item)
+  "Transform the downloaded json into a work item"
+  (let ((fields (alist-get 'fields work-item)))
+    `((title ,(alist-get 'System\.Title fields))
+      (area-path ,(alist-get 'System\.AreaPath fields))
+      (team-project ,(alist-get 'System\.TeamProject fields))
+      (iteration-path ,(alist-get 'System\.IterationPath fields))
+      (work-item-type ,(alist-get 'System\.WorkItemType fields))
+      (state ,(alist-get 'System\.State fields))
+      (reason ,(alist-get 'System\.Reason fields))
+      (assigned-to ,(id->identity 'System\i.AssignedTo fields))
+      (created-date ,(alist-get 'System\.CreatedDate fields))
+      (created-by ,(id->identity 'System\.CreatedBy fields))
+      (changed-date ,(alist-get 'System\.ChangedDate fields))
+      (changed-by ,(id->identity 'System\.ChangedBy fields))
+      (comment-count ,(alist-get 'System\.CommentCount fields))
+      (board-column ,(alist-get 'System\.BoardColumn fields))
+      (board-columnDone ,(alist-get 'System\.BoardColumnDone fields))
+      (length ,(alist-get 'Custom\.Length fields))
+      (parent ,(alist-get 'System\.Parent fields)))))
+
 (defun az-devops/work-item-->store (store item)
   "Puts the work ITEM in the hash STORE by id, and return id."
   (let ((id (alist-get 'id item)))
@@ -145,7 +166,7 @@ The value key is a vector of values."
        (mapcar
         (lambda (item)
           ;; handle the item in the request
-          (az-devops/work-item-->store store item))
+          (az-devops/work-item-->store store (az-devops/work-item-parse item)))
         values)))
    (az-devops/--fetch-work-items--chunked-list->urls
     (-partition-all
