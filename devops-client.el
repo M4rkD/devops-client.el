@@ -241,11 +241,10 @@ This function assumes that each team maps to an AreaPath."
   (let* ((prefix (az-devops/prefix-printing-function level))
          (id (alist-get 'id data))
          (id (if (numberp id) (number-to-string id)))
-         (fields (alist-get 'fields data))
-         (label (alist-get 'System\.Title fields))
-         (wi-type (alist-get 'System\.WorkItemType fields))
-         (wi-state (alist-get 'System\.State fields))
-         (assigned-to (alist-get 'displayName (alist-get 'System\.AssignedTo fields))))
+         (label (alist-get 'title data))
+         (wi-type (alist-get 'work-item-type data))
+         (wi-state (alist-get 'state data))
+         (assigned-to (alist-get 'assigned-to data)))
     (not (string= wi-state "Closed"))))
 
 
@@ -256,13 +255,12 @@ Printer is a function such as #'format or #'message"
   (if (az-devops/print-it? data level)
       (let* ((prefix (az-devops/prefix-printing-function level))
              (id (alist-get 'id data))
-             (id (if (numberp id) (number-to-string id)))
-             (fields (alist-get 'fields data))
-             (label (alist-get 'System\.Title fields))
-             (wi-type (alist-get 'System\.WorkItemType fields))
-             (wi-state (alist-get 'System\.State fields))
-             (assigned-to (alist-get 'displayName (alist-get 'System\.AssignedTo fields))))
-        (funcall printer "%s %s  [%s]   <%s>        %s" prefix label id wi-state assigned-to))))
+             (label (alist-get 'title data))
+             (wi-type (alist-get 'work-item-type data))
+             (wi-state (alist-get 'state data))
+             (assigned-to (alist-get 'assigned-to data)))
+        (debug)
+        (funcall printer "%s %s  [%s]   <%s>        %s                (%s)" prefix label id wi-state assigned-to wi-type))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Extract relation information
