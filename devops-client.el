@@ -23,6 +23,9 @@
 (require 'ht)
 (require 'dash)
 
+(defun az-devops/new-store ()
+  (ht-create))
+
 (defvar az-devops/base-url "https://dev.azure.com/swansea-university/_apis"
   "The base url of the organisation.")
 
@@ -37,21 +40,34 @@
 
 (defvar az-devops/buffer "*devops*")
 
-(defun az-devops/new-store ()
-  (ht-create))
+(defvar az-devops/token-file-path "~/.azure-devops-token")
 
-(defun az-devops/dispatch-get-request-without-parser (uri)
-  "Dispatch GET request to endpoint URI (without parsing).
-This is useful for testing in cases that cause issues with the parser."
-  (let ((url (concat az-devops/base-url uri)))
-    (message "Calling: %s" url)
-    (request
-      url
-      :headers '(("Authorization" . "Basic BASE64-ENCODED-TOKEN"))
-      :success (cl-function
-                (lambda (&key data &allow-other-keys)
-                  (message "I sent: %S" (assoc-default 'args data))))
-      :sync t)))
+(defvar az-devops/auth-token nil)
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Tokens
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun az-devops/load-token ()
+  "Return token from az-devops/toekn-file-path."
+  (with-temp-buffer
+    (insert-file-contents az-devops/token-file-path)
+    (s-trim
+     (buffer-string))))
+
+(defun az-devops/read-token ()
+  (setq az-devops/auth-token (az-devops/load-token)))
+
+(defun default-headers ()
+  `(("Authorization" . ,(concat "Basic " az-devops/auth-token))
+    ("Content-Type" . "application/json")))
+
+(az-devops/read-token)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Communications
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun az-devops/dispatch-get-request (uri)
   "Dispatch GET request to endpoint URI (with json parsing)."
@@ -59,11 +75,8 @@ This is useful for testing in cases that cause issues with the parser."
     (message "Calling: %s" url)
     (request
       url
-      :headers '(("Authorization" . "Basic BASE64-ENCODED-TOKEN"))
+      :headers (default-headers)
       :parser 'json-read
-      :success (cl-function
-                (lambda (&key data &allow-other-keys)
-                  (message "I sent: %S" (assoc-default 'args data))))
       :sync t)))
 
 (defun az-devops/get-request (uri)
@@ -80,8 +93,7 @@ This is useful for testing in cases that cause issues with the parser."
      (request
        wiql-url
        :type "POST"
-       :headers '(("Authorization" . "Basic BASE64-ENCODED-TOKEN")
-                  ("Content-Type" . "application/json"))
+       :headers (default-headers)
        :data (json-encode `(("query" . ,wiql)))
        :parser 'json-read
        :success (cl-function
