@@ -422,17 +422,16 @@ Return a list containing the results of each application of FUNC, in the order p
 (defun devops-refresh ()
   (interactive)
   (setq az-devops/wi-store (az-devops/new-store))
-  (devops-fetch-all)
-(devops)
-  )
+  (devops-fetch-all))
 
 
-  (defun devops ()
-    (interactive)
-    (switch-to-buffer az-devops/buffer)
-    (print-all-teams-and-epics az-devops/wi-store
-                               az-devops/teams-and-epics)
-    (org-mode))
+(defun devops ()
+  (interactive)
+  (devops-refresh)
+  (switch-to-buffer az-devops/buffer)
+  (print-all-teams-and-epics az-devops/wi-store
+                             az-devops/teams-and-epics)
+  (org-mode))
 
 
 (provide 'devops)
