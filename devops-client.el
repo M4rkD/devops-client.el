@@ -304,9 +304,11 @@ This works by finding all the relations, and passing them all to
 fetch-work-items. This works because the function fetch-work-items
 does the filtering."
   (if-let ((ids (az-devops/find-all-relations-ids store)))
-      (az-devops/fetch-work-items store ids)
-    ;; recursive call until all relations downloaded
-    (az-devops/fetch-all-relations store)))
+      (progn
+        ;; Download work items
+        (az-devops/fetch-work-items store ids)
+        ;; recursive call until all relations downloaded
+        (az-devops/fetch-all-relations store))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Walk the tree
@@ -415,12 +417,6 @@ Return a list containing the results of each application of FUNC, in the order p
   (setq az-devops/teams-and-epics
         (teams-and-epics az-devops/wi-store az-devops/teams))
   ;; update the store with all relations
-  (az-devops/fetch-all-relations az-devops/wi-store)
-  (az-devops/fetch-all-relations az-devops/wi-store)
-  (az-devops/fetch-all-relations az-devops/wi-store)
-  (az-devops/fetch-all-relations az-devops/wi-store)
-  (az-devops/fetch-all-relations az-devops/wi-store)
-  (az-devops/fetch-all-relations az-devops/wi-store)
   (az-devops/fetch-all-relations az-devops/wi-store))
 
 (defun devops-refresh ()
