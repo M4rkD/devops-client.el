@@ -23,452 +23,497 @@
 (require 'ht)
 (require 'dash)
 
-(defun az-devops/new-store ()
+(defun azdev/new-store ()
   (ht-create))
 
-(defvar az-devops/base-url "https://dev.azure.com/swansea-university/_apis"
+(defvar azdev/base-url "https://dev.azure.com/swansea-university/_apis"
   "The base url of the organisation.")
 
 
-(defvar az-devops/default-project "Swansea%20Academy%20of%20Advanced%20Computing"
+(defvar azdev/default-project "Swansea%20Academy%20of%20Advanced%20Computing"
   "The default project.")
 
-(defvar az-devops/query-chunk-size 200
+(defvar azdev/query-chunk-size 200
   "The maximum number of work items to fetch in one go.")
 
-(defvar az-devops/wi-store (az-devops/new-store)
+(defvar azdev/wi-store (azdev/new-store)
   "Default work item store.")
 
-(defvar az-devops/buffer "*devops*")
+(defvar azdev/buffer "*devops*")
 
-(defvar az-devops/token-file-path "~/.azure-devops-token")
+(defvar azdev/token-file-path "~/.azure-devops-token")
 
-(defvar az-devops/auth-token nil)
+(defvar azdev/auth-token nil)
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Tokens
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun az-devops/load-token ()
-  "Return token from az-devops/toekn-file-path."
+(defun azdev/load-token ()
+  "Return token from azdev/toekn-file-path."
   (with-temp-buffer
-    (insert-file-contents az-devops/token-file-path)
+    (insert-file-contents azdev/token-file-path)
     (s-trim
-     (buffer-string))))
+    (buffer-string))))
 
-(defun az-devops/read-token ()
-  (setq az-devops/auth-token (az-devops/load-token)))
+(defun azdev/read-token ()
+  (setq azdev/auth-token (azdev/load-token)))
 
 (defun default-headers ()
-  `(("Authorization" . ,(concat "Basic " az-devops/auth-token))
+  `(("Authorization" . ,(concat "Basic " azdev/auth-token))
     ("Content-Type" . "application/json")))
 
-(az-devops/read-token)
+(azdev/read-token)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Communications
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun az-devops/catch-request-errors (response)
+(defun azdev/catch-request-errors (response)
   "Throw the appropriate error if RESPONSE does not have status 200.
 Otherwise return the RESPONSE, unchanged."
   (if (= 200 (request-response-status-code response))
       response
-    (let* ((is-json (cl-search "json" (request-response-header r "Content-Type")))
-           (raw-data (request-response-data response)))
+    (let* ((is-json (cl-search "json" (request-response-header response "Content-Type")))
+          (raw-data (request-response-data response)))
 
         (user-error "Error in response: %s" raw-data))))
 
-(defun az-devops/dispatch-get-request (uri)
-  (az-devops/--dispatch-request uri "GET"))
+(defun azdev/dispatch-get-request (uri)
+  (azdev/--dispatch-request uri "GET" nil))
 
-(defun az-devops/dispatch-post-request (uri &rest request-args)
-  (apply #'az-devops/--dispatch-request uri "POST" request-args))
+(defun azdev/dispatch-post-request (uri data)
+  (azdev/--dispatch-request uri "POST" data))
 
-(cl-defun az-devops/handle-400 (&key data error-thrown symbol-status response  &allow-other-keys)
-  (user-error "400 Error"))
-
-(defun az-devops/--dispatch-request (uri method &rest request-args)
+(defun azdev/--dispatch-request (uri method data)
   "Dispatch request to endpoint URI (with json parsing) and METHOD.
 Return parsed json data as an alist.
 METHOD should be a string such as \"GET\" or \"POST\""
-  (let ((url (concat az-devops/base-url uri)))
+  (let ((url (concat azdev/base-url uri)))
     (message "Calling: [%S] %s" method url)
     (request-response-data
-     (az-devops/catch-request-errors
-      (apply #'request
-             url
-             :type method
-             :parser 'json-read
-             :headers (default-headers)
-             :sync t
-             :status-code '((400 . az-devops/handle-400))
-             request-args)))))
+    (if data
+        (request
+          url
+          :type method
+          :parser 'json-read
+          :headers (default-headers)
+          :sync t
+          :data data)
+      (request
+        url
+        :type method
+        :parser 'json-read
+        :headers (default-headers)
+        :sync t)))))
 
-(defun az-devops/get-request (uri)
+(defun azdev/get-request (uri)
   "GET from URI of the current project."
-  (request-response-data
-   (az-devops/dispatch-get-request uri)))
+  (azdev/dispatch-get-request uri))
 
-(defun az-devops/query (wiql)
+(defun azdev/query (wiql)
   "Fetch the result of the the wiql query string given by WIQL."
   ;; wiql api used is documented at: https://docs.microsoft.com/en-us/rest/api/azure/devops/wit/wiql/query%20by%20wiql?view=azure-devops-rest-5.1
-  (let ((wiql-url (format "%s/wit/wiql?api-version=5.1" az-devops/base-url)))
+  (let ((wiql-uri "/wit/wiql?api-version=5.1"))
     (message "Wiql: %s" wiql)
-    (az-devops/dispatch-post-request wiql-url :data (json-encode `(("query" . ,wiql))))))
+    (azdev/dispatch-post-request wiql-uri (json-encode `(("query" . ,wiql))))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Fetch/store work items by ID
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun az-devops/--fetch-work-items--chunked-list->urls (chunked-list)
+(defun azdev/--fetch-work-items--chunked-list->urls (chunked-list)
   "Return a list of work item urls, given a chunked list of ids.
 Given a chunked list of ids (i.e. a list of lists of ids)
 return a list of urls of size equal the length of CHUNKED-LIST,
 of urls to fetch that list of IDs"
   (mapcar (lambda (ids-chunk)
             (concat
-             "/wit/workItems?ids="
-             (mapconcat 'number-to-string ids-chunk ",")
-             "&$expand=Relations&errorPolicy=Omit"))
+            "/wit/workItems?ids="
+            (mapconcat 'number-to-string ids-chunk ",")
+            "&$expand=Relations&errorPolicy=Omit"))
           chunked-list))
 
-(defun az-devops/filter-ids-not-in-store (store ids)
+(defun azdev/filter-ids-not-in-store (store ids)
   "Given a STORE and a list of IDS, return the ids not in the store."
   (seq-filter
-   (lambda (key)
-     (not (ht-contains? store key)))
-   ids))
+  (lambda (key)
+    (not (ht-contains? store key)))
+  ids))
 
-(defun az-devops/work-item-parse (work-item)
-  "Transform the downloaded json into a work item"
-  (let ((fields (alist-get 'fields work-item)))
-    `((id ,(string-to-number (alist-get 'id work-item)))
-      (title ,(alist-get 'System\.Title fields))
-      (relations ,(az-devops/work-item->relations-ids work-item))
-      (area-path ,(alist-get 'System\.AreaPath fields))
-      (team-project ,(alist-get 'System\.TeamProject fields))
-      (iteration-path ,(alist-get 'System\.IterationPath fields))
-      (relations ,(alist-get 'relations work-item))
-      (work-item-type ,(alist-get 'System\.WorkItemType fields))
-      (state ,(alist-get 'System\.State fields))
-      (reason ,(alist-get 'System\.Reason fields))
-      (assigned-to ,(id->identity 'System\i.AssignedTo fields))
-      (created-date ,(alist-get 'System\.CreatedDate fields))
-      (created-by ,(id->identity 'System\.CreatedBy fields))
-      (changed-date ,(alist-get 'System\.ChangedDate fields))
-      (changed-by ,(id->identity 'System\.ChangedBy fields))
-      (comment-count ,(alist-get 'System\.CommentCount fields))
-      (board-column ,(alist-get 'System\.BoardColumn fields))
-      (board-columnDone ,(alist-get 'System\.BoardColumnDone fields))
-      (length ,(alist-get 'Custom\.Length fields))
-      (parent ,(alist-get 'System\.Parent fields)))))
+(defun id->identity (key fields)
+  "
+  Returns a standardised string describing identity based KEY of fields
+returned by DevOps for a given work item.
 
-(defun az-devops/work-item-->store (store item)
+identities returned by DevOps are of the form:
+
+(displayName . \"My Name\")
+(url . \"...\")
+(_links (avatar
+          (href . \"...\")))
+id . \"...)
+(uniqueName . \"unique@web.com\")
+(imageUrl . \"...\")
+(descriptor . \"...\"))
+"
+  (let* ((identity-alist (alist-get key fields))
+        (uniqueName (alist-get 'uniqueName identity-alist)))
+    uniqueName))
+
+(defun azdev/get-relation-matching-attributes-name (relations name)
+  "Get list of IDs from RELATIONS where relation type matches NAME.
+
+NAME is either \"CHILD\" or \"PARENT\" "
+  (delq nil
+        (mapcar (lambda (relation)
+                  (if (string= name
+                              (alist-get 'name
+                                          (alist-get 'attributes relation)))
+                      (azdev/relation-url>id (alist-get 'url relation))
+                    ))
+                relations)))
+
+(defun azdev/work-item-parse (work-item)
+" Transform the downloaded json into a work item"
+(let* ((fields (alist-get 'fields work-item))
+       (relations (alist-get 'relations work-item))
+       (area-path (alist-get 'System\.AreaPath fields))) ;; the work item is an alist
+    `((id . ,(alist-get 'id work-item))
+      (title . ,(alist-get 'System\.Title fields))
+      (children . ,(azdev/get-relation-matching-attributes-name relations "Child"))
+      (parent . ,(azdev/get-relation-matching-attributes-name relations "Parent"))
+      (relations-raw . ,relations)
+      (area-path . ,area-path)
+      (team . ,(car
+               (last
+                (s-split "\\\\" area-path))))
+      (project . ,(alist-get 'System\.TeamProject fields))
+      (iteration-path . ,(alist-get 'System\.IterationPath fields))
+      (work-item-type . ,(alist-get 'System\.WorkItemType fields))
+      (state . ,(alist-get 'System\.State fields))
+      (reason . ,(alist-get 'System\.Reason fields))
+      (assigned-to . ,(id->identity 'System\.AssignedTo fields))
+      (created-date . ,(alist-get 'System\.CreatedDate fields))
+      (created-by . ,(id->identity 'System\.CreatedBy fields))
+      (changed-date . ,(alist-get 'System\.ChangedDate fields))
+      (changed-by . ,(id->identity 'System\.ChangedBy fields))
+      (comment-count . ,(alist-get 'System\.CommentCount fields))
+      (board-column . ,(alist-get 'System\.BoardColumn fields))
+      (board-columnDone . ,(alist-get 'System\.BoardColumnDone fields))
+      (length . ,(alist-get 'Custom\.Length fields))
+      (parent . ,(alist-get 'System\.Parent fields)))))
+
+(defun azdev/work-item-->store (store item)
   "Puts the work ITEM in the hash STORE by id, and return id."
   (let ((id (alist-get 'id item)))
     (ht-set! store id item)
     id))
 
-(defun az-devops/fetch-work-items (store ids)
-  "Fetch each work item in the list IDS and store in STORE.
-If the entry already exists, don't download again.
-Return the ids of the downloaded item (which may be smaller
-than the ids requested).
-Note: Each response is an association lists, which contains a value key.
-The value key is a vector of values."
-  (mapcan
-   (lambda (url)
-     (let* ((response (az-devops/get-request url))
-            (values (alist-get 'value response)))
-       (mapcar
-        (lambda (item)
-          ;; handle the item in the request
-          (az-devops/work-item-->store store (az-devops/work-item-parse item)))
-        values)))
-   (az-devops/--fetch-work-items--chunked-list->urls
-    (-partition-all
-     az-devops/query-chunk-size
-     (az-devops/filter-ids-not-in-store
-      store
-      ids)))))
+(defun azdev/fetch-work-item-data-urls (ids)
+  (azdev/--fetch-work-items--chunked-list->urls
+   (-partition-all
+    azdev/query-chunk-size
+    ids)))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Query work items
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun az-devops/extract-ids-from-query-response(wiql-query-response)
+(defun azdev/extract-ids-from-query-response(wiql-query-response)
   "Extract a list of ids from the WIQL-QUERY-RESPONSE response."
   (mapcar (apply-partially 'alist-get 'id)
           (alist-get 'workItems wiql-query-response)))
 
-(defun az-devops/query-work-item-ids (&rest wiql)
+(defun azdev/query-work-item-ids (wiql)
   "Fetch the ids matching a given WIQL query."
-  (az-devops/extract-ids-from-query-response
-              (az-devops/query
-               (apply #'format wiql))))
-
-(defun az-devops/query-work-items (store &rest wiql)
-  "Fetch work items for a given WIQL query into STORE.
-Return the ids of the query results.
-WIQL can be a string or a format string, such as that passed to message or
-the format function."
-  (let ((ids (az-devops/query-work-item-ids wiql)))
-    (az-devops/fetch-work-items store ids)
-    ids))
+  (azdev/extract-ids-from-query-response
+              (azdev/query wiql)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Specific requests
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun az-devops/get-projects ()
+(defun azdev/get-projects ()
   "Fetch a list of all projects."
-   (az-devops/get-request "/projects"))
+  (azdev/get-request "/projects"))
 
-(defun az-devops/get-teams ()
+(defun azdev/get-teams ()
   "Fetch a list of all teams for the current project."
   (alist-get 'value
-             (request-response-data
-              (az-devops/dispatch-get-request
-               (concat "/projects/" az-devops/default-project "/teams")))))
+            (azdev/dispatch-get-request
+              (concat "/projects/" azdev/default-project "/teams"))))
 
-(defun az-devops/get-all-work-items ()
+(defun azdev/get-all-work-items ()
   "Fetch a list of all teams for the current project."
   (alist-get 'value
-             (request-response-data
-              (az-devops/dispatch-get-request
-               (concat "/projects/" az-devops/default-project "/teams")))))
+            ((azdev/dispatch-get-request
+              (concat "/projects/" azdev/default-project "/teams")))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Specific queries
+;;; Queries as functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun az-devops/fetch-epics-by-team (store team)
+(defun azdev/query/all-work-items ()
+  "Fetch all epics as a list of ids stored in STORE."
+  (azdev/query-work-item-ids
+   "SELECT [System.Id] FROM workitems WHERE [System.TeamProject] = 'Swansea Academy of Advanced Computing'"))
+
+(defun azdev/query/all-epics ()
+  "Fetch all epics as a list of ids stored in STORE."
+  (azdev/query-work-item-ids
+  "SELECT * FROM workitems WHERE [System.WorkItemType] = 'EPIC'"))
+
+(defun azdev/query/epics-for-team (team)
   "Fetch all epics for a given TEAM into STORE.
 Return ids of epics.
 This function assumes that each team maps to an AreaPath."
-  (az-devops/query-work-items
-   store
-    "SELECT * FROM workitems WHERE [System.WorkItemType] = 'EPIC' AND \
-[System.AreaPath] = 'Swansea Academy of Advanced Computing\\%s'" team))
-
-
-(defun az-devops/fetch-all-epics (store)
-  "Fetch all epics as a list of ids stored in STORE."
-  (az-devops/query-work-items
-   store
-   "SELECT * FROM workitems WHERE [System.WorkItemType] = 'EPIC'"))
-
-(defun az-devops/all-work-items (store)
-  "Fetch all epics as a list of ids stored in STORE."
-  (az-devops/query-work-items
-   store
-   "SELECT * FROM workitems"))
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Printing
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defun az-devops/print-it? (data level)
-  (let* ((prefix (az-devops/prefix-printing-function level))
-         (id (alist-get 'id data))
-         (id (if (numberp id) (number-to-string id)))
-         (label (alist-get 'title data))
-         (wi-type (alist-get 'work-item-type data))
-         (wi-state (alist-get 'state data))
-         (assigned-to (alist-get 'assigned-to data)))
-    (not (string= wi-state "Closed"))))
-
-
-(cl-defun az-devops/print-work-item (data printer &optional (level 0))
-  "Given work item DATA, print it using the PRINTER function.
-
-Printer is a function such as #'format or #'message"
-  (if (az-devops/print-it? data level)
-      (let* ((prefix (az-devops/prefix-printing-function level))
-             (id (alist-get 'id data))
-             (label (alist-get 'title data))
-             (wi-type (alist-get 'work-item-type data))
-             (wi-state (alist-get 'state data))
-             (assigned-to (alist-get 'assigned-to data)))
-        (debug)
-        (funcall printer "%s %s  [%s]   <%s>        %s                (%s)" prefix label id wi-state assigned-to wi-type))))
+  (azdev/query-work-item-ids
+   (format "SELECT * FROM workitems WHERE [System.WorkItemType] = 'EPIC' AND \
+[System.AreaPath] = 'Swansea Academy of Advanced Computing\\%s'" team)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Extract relation information
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun az-devops/relation->id (relation)
-  "Return the id (as a number) for a RELATION.
-The id is extracted as the last portion of the url to the relation"
+(defun azdev/relation-url>id (relation-url)
+  "Return the id (as a number) for a RELATION-URL.
+The id is extracted as the last portion of the url."
   (string-to-number
-   (car
+  (car
     (last
-     (split-string
-      (alist-get 'url relation)
+    (split-string
+      relation-url
       "/")))))
 
-(defun az-devops/work-item->relations-ids (work-item)
-  "For a work item, extract ids of Hierarchy-Forward relations"
-  (mapcan
-   (lambda (item)
-     (if (string= (alist-get 'rel item)
-                  "System.LinkTypes.Hierarchy-Forward")
-         (let ((id (az-devops/relation->id item)))
-           (if (listp id)
-               id
-             (list id)))
-       nil))
-   (alist-get 'relations work-item)))
-
-(defun az-devops/find-all-relations-ids (store)
-  "Find every unique ids in a relation in STORE"
-  (delete-dups
-  (mapcan 'identity
-   (ht-map
-    (lambda (k v)
-      (if-let ((relations (az-devops/work-item->relations-ids v)))
-         relations))
-    store))))
-
-(defun az-devops/fetch-all-relations (store)
-  "Fetches all missing relations in STORE.
-This works by finding all the relations, and passing them all to
-fetch-work-items. This works because the function fetch-work-items
-does the filtering."
-  (if-let ((ids (az-devops/find-all-relations-ids store)))
-      (progn
-        ;; Download work items
-        (az-devops/fetch-work-items store ids)
-        ;; recursive call until all relations downloaded
-        (az-devops/fetch-all-relations store))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Walk the tree
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
- (defun az-devops/--listify (o)
-   "Returns a list with a single element O, if O is not a list.
-Otherwise return O unchanged."
-   (if (listp o)
-       o
-     (list o)))
-
- (cl-defun az-devops/walk-tree (store curr-node func level)
-   "Walk the tree, calling the function FUNC at each node.
-Tree is walked by walking through parents, and mapping over each child for each parent. There is probably a more elegant way to return the result.
-Return a list containing the results of each application of FUNC, in the order performed, in a flattened list."
-   (let* ((data (ht-get store curr-node))
-          (node-result (funcall func store curr-node level))
-          (children (az-devops/work-item->relations-ids data))
-          (child-result (mapcar
-                         (lambda (node)
-                           (az-devops/walk-tree store node func (1+ level)))
-                         children)))
-
-     (if children
-         (-flatten
-          (append
-           (az-devops/--listify node-result)
-           (az-devops/--listify child-result)))
-       node-result)))
-
- (defun az-devops/prefix-printing-function (level)
-   "Adds starts to the start, to emulate org mode prefixes"
-   (concat (apply 'concat (make-list (+ level 2) "*")) " "))
-
- (defun az-devops/walk-tree-printing (store start-node)
-   (az-devops/walk-tree store
-                        start-node
-                        (lambda (store node-id level)
-                           (az-devops/print-work-item (ht-get store node-id) #'az-devops/buffer-insert-ln level))
-                        0))
-
- (defun print-node-ids (store ids)
-   "Printes the provided item IDS from STORE."
-   (mapcar
-    (lambda (item-id)
-      (az-devops/print-work-item (ht-get store item-id) #'format))
-    ids))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Buffer management
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun az-devops/clear-buffer ()
-  (with-current-buffer az-devops/buffer
+(defun azdev/clear-buffer ()
+  (with-current-buffer azdev/buffer
     (erase-buffer)))
 
-(defun az-devops/buffer-insert-ln (&rest str)
-  (az-devops/buffer-insert (concat (apply #'format str) "\n")))
+(defun azdev/buffer-insert-ln (&rest str)
+  (azdev/buffer-insert (concat (apply #'format str) "\n")))
 
-(defun az-devops/buffer-insert (str)
-  (with-current-buffer az-devops/buffer
+(defun azdev/buffer-insert (str)
+  (with-current-buffer azdev/buffer
     (save-excursion
-     (goto-char (point-max))
-     (insert str)
-     str)))
+    (goto-char (point-max))
+    (insert str)
+    str)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Fetching teams and epics
+;;; Search and filter store
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun teams-and-epics (store teams)
+
+;; (azdev/find/epics-for-given-team azdev/wi-store "AerOpt")
+
+(defun azdev/find/epics-for-given-team (store name)
+  (azdev/find store (azdev/pred/and (azdev/pred/epic) (azdev/pred/team-name name))))
+
+(defun azdev/find/team-names (store name)
+  (azdev/unique-values-of-key store 'team))
+
+(defun azdev/find/team-names-random-order (store)
+  (require 'cookie1)
+
+  (cookie-shuffle-vector
+   (apply #'vector
+          (azdev/unique-values-of-key store 'team))))
+
+(defun azdev/find (store pred)
+  "Return ids of entries for which PRED returns truthy.
+
+PRED is a function which takes an item."
+  (delete-dups
+   (delq nil
+         (ht-map (lambda (k v &rest rest)
+                   (if (funcall pred v)
+                       k
+                     nil))
+                 store))))
+
+(defun azdev/pred/string-value (key string)
+  (lambda (v)
+    (string= (alist-get key v) string)))
+
+(defun azdev/pred/epic ()
+  (azdev/pred/string-value 'work-item-type "Epic"))
+
+(defun azdev/pred/team-name (team-name)
+  (lambda (v)
+    (string= (alist-get 'team v) team-name)))
+
+(defun azdev/pred/or (pred1 pred2)
+  (lambda (v)
+    (or (funcall pred1 v) (funcall pred2 v))))
+
+(defun azdev/pred/and (pred1 pred2)
+  (lambda (v)
+    (and (funcall pred1 v) (funcall pred2 v))))
+
+(defun azdev/unique-values-of-key (store key)
+  "Fetch all unique values of field KEY in STORE."
+  (delete-dups
+  (ht-map (lambda (k v)
+            (alist-get key v))
+          store)))
+
+
+(azdev/unique-values-of-key azdev/wi-store 'team)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Walk the tree
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun azdev/--listify (o)
+  "Returns a list with a single element O, if O is not a list.
+Otherwise return O unchanged."
+  (if (listp o)
+      o
+    (list o)))
+
+(cl-defun azdev/walk-tree (store curr-node func level)
+  "Walk the tree, calling the function FUNC at each node.
+Tree is walked by walking through parents, and mapping over each child for each parent. There is probably a more elegant way to return the result.
+Return a list containing the results of each application of FUNC, in the order performed, in a flattened list."
+  (let* ((data (ht-get store curr-node))
+          (node-result (funcall func store curr-node level))
+          (children (alist-get 'children data))
+          (child-result (mapcar
+                        (lambda (node)
+                          (azdev/walk-tree store node func (1+ level)))
+                        children)))
+
+    (if children
+        (-flatten
+          (append
+          (azdev/--listify node-result)
+          (azdev/--listify child-result)))
+      node-result)))
+
+(defun azdev/prefix-printing-function (level)
+  "Adds starts to the start, to emulate org mode prefixes"
+  (concat (apply 'concat (make-list (+ level 2) "*")) " "))
+
+(defun azdev/walk-tree-printing (store start-node)
+  (azdev/walk-tree store
+                        start-node
+                        (lambda (store node-id level)
+                          (azdev/print-work-item (ht-get store node-id) #'azdev/buffer-insert-ln level))
+                        0))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Printing
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(cl-defun azdev/print-work-item (data printer &optional (level 0))
+  "Given work item DATA, print it using the PRINTER function.
+
+Printer is a function such as #'format or #'message"
+  (let* ((prefix (azdev/prefix-printing-function level))
+         (id (alist-get 'id data))
+         (label (alist-get 'title data))
+         (wi-type (alist-get 'work-item-type data))
+         (wi-state (alist-get 'state data))
+         (assigned-to (if-let ((name (alist-get 'assigned-to data)))
+                          name
+                        "Not assigned")))
+    (funcall printer "%s %s  [%s]   <%s>        %s                (%s)" prefix label id wi-state assigned-to wi-type)))
+
+(cl-defun print-ids (store ids &optional (printer #'format))
+  "Prints the provided item IDS from STORE."
   (mapcar
-   (lambda (team)
-     `((name . ,(alist-get 'name team))
-       (id . ,(alist-get 'id team))
-       (epics . ,(az-devops/fetch-epics-by-team store (alist-get 'name team)))))
+    (lambda (item-id)
+      (azdev/print-work-item (ht-get store item-id) #'format))
+    ids))
+
+(defun azdev/print-team-header (team-name)
+  (azdev/buffer-insert-ln "* %s" team-name))
+
+(defun azdev/print/tree-from-teams (teams)
+  (mapcar
+   (lambda (team-name)
+     (azdev/print-team-header team-name)
+     (mapcar (lambda (epic-id)
+               (azdev/walk-tree-printing azdev/wi-store epic-id))
+             (azdev/find/epics-for-given-team azdev/wi-store team-name)))
    teams))
 
-(defun print-single-team-and-epics (store team-and-epics)
-  (az-devops/buffer-insert-ln "* %s" (alist-get 'name team-and-epics))
-  (let ((epics (alist-get 'epics team-and-epics)))
-    (mapcar
-     (lambda (epic)
-       (az-devops/walk-tree-printing store epic))
-     epics)))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Fetching and storing work items
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defun azdev/fetch-work-items (ids)
+  "Fetch data for each items from IDS in chunks."
+  (mapcan
+   (lambda (url)
+     ;; loop over urls
+     (let* ((response (azdev/get-request url))
+            (values (alist-get 'value response)))
+       (mapcar
+        (lambda (value)
+          (azdev/work-item-parse value))
+        values)))
+   (azdev/fetch-work-item-data-urls ids)))
 
-(defun print-all-teams-and-epics (store teams-and-epics)
-  (az-devops/clear-buffer)
-  (mapcar
-   (lambda (team+epic)
-     (print-single-team-and-epics store team+epic)
-     )
-   teams-and-epics))
+(defun azdev/fetch-and-set-work-items (store ids)
+  "Fetch all work items specified in IDS into STORE."
+  (dolist (item (azdev/fetch-work-items ids))
+        (azdev/store/set-item store item)))
+
+(defun azdev/store/set-item (store item)
+  "Add an ITEM into STORE."
+  (ht-set! azdev/wi-store (alist-get 'id item) item))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; High-level functions
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun azdev/fetch-and-set-all-items (store)
+  "Fetch all work items and set them in STORE (e.g. when starting up)."
+  (azdev/fetch-and-set-work-items
+   store
+   (azdev/query/all-work-items)))
+
+(defun azdev/fetch-and-set-all-new-items (store)
+  "Fetch all items that are not already in STORE, and set them in STORE."
+(azdev/fetch-and-set-work-items
+ store
+ (azdev/filter-ids-not-in-store store
+                                    (azdev/query/all-work-items))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Interactive funcations
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun devops-fetch-all ()
-  (interactive)
-  ;; fetch info on teams
-  (setq az-devops/teams (az-devops/get-teams))
-  ;; seed the store with team epics
-  (setq az-devops/teams-and-epics
-        (teams-and-epics az-devops/wi-store az-devops/teams))
-  ;; update the store with all relations
-  (az-devops/fetch-all-relations az-devops/wi-store))
 
-(defun devops-refresh ()
+(defun devops-draw ()
   (interactive)
-  (setq az-devops/wi-store (az-devops/new-store))
-  (devops-fetch-all))
 
+  (switch-to-buffer azdev/buffer)
+  (azdev/clear-buffer)
+
+  (azdev/print/tree-from-teams
+   (azdev/find/team-names-random-order azdev/wi-store))
+  (org-mode))
 
 (defun devops ()
   (interactive)
-  (devops-refresh)
-  (switch-to-buffer az-devops/buffer)
-  (print-all-teams-and-epics az-devops/wi-store
-                             az-devops/teams-and-epics)
-  (org-mode))
 
+  ;; reset the store
+  (setq azdev/wi-store (azdev/new-store))
+
+  (azdev/fetch-and-set-all-items azdev/wi-store)
+
+  (devops-draw))
 
 (provide 'devops)
 ;;; devops.el ends here
