@@ -337,7 +337,7 @@ PRED is a function which takes an item."
   (/ (float-time
       (time-subtract
        time
-       (alist-get key v)
+       (alist-get key work-item)
        )) (* 60 60 24)))
 
 (cl-defun azdev/pred/days-since-time (days &optional (key 'changed-date))
@@ -419,7 +419,8 @@ Return a list containing the results of each application of FUNC, in the order p
 (defvar azdev-faces-alist '((epic . 'azdev-epic)
                             (feature . 'azdev-feature)
                             (dev-task . 'azdev-dev-task)
-                            (admin-task . 'azdev-admin-task)))
+                            (admin-task . 'azdev-admin-task)
+                            (team-name . 'azdev-team-name)))
 
 (defface azdev-epic
   '((default :foreground "#FF7B00"
@@ -448,11 +449,18 @@ Return a list containing the results of each application of FUNC, in the order p
        "Basic face for highlighting."
        :group 'azdev-faces)
 
+(defface azdev-team-name
+  '((default :foreground "white"
+      :background "DimGray"))
+       "Basic face for highlighting."
+       :group 'azdev-faces)
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Filtering
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (setq azdev/work-item-show-filter 'filter-only-not-closed)
+
 ;; (setq azdev/work-item-show-filter 'filter-nothing)
 
 (defun filter-nothing (data level)
@@ -464,9 +472,12 @@ Return a list containing the results of each application of FUNC, in the order p
   (let* ((id (alist-get 'id data))
          (label (alist-get 'title data))
          (wi-type (alist-get 'work-item-type data))
+         (changed-time (alist-get 'changed-date data))
          (wi-state (alist-get 'state data))
-         (assigned-to (alist-get 'assigned-to data)))
-    (not  (string= wi-state "Closed"))))
+         (assigned-to (alist-get 'assigned-to data))
+         (check-time (azdev/pred/days-since-time 7)))
+    (or (not  (string= wi-state "Closed"))
+        (funcall check-time data))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -514,28 +525,29 @@ Printer is a function such as #'format or #'message"
                                       name
                                     "---"))))))
          (pad-len (- 70 (length prefix))))
-    (if (or (string= wi-type "Epic")
-            (string= wi-type "Feature"))
-        (insert
+    (if (funcall azdev/work-item-show-filter data level)
+        (if (or (string= wi-type "Epic")
+                (string= wi-type "Feature"))
+            (insert
          
-         prefix
-         (azdev/face wi-type
-                     label
-                     (if (string= wi-type "Epic")
-                         (concat "[" (alist-get 'team data) "]"))
-                     "\n"))
-      (insert
-       (azdev/face wi-type
-                   (azdev/face 'prefix prefix)
-                   " "
-                   (azdev/face 'label (s-truncate pad-len (s-pad-right pad-len " " label)))
-                   "  "
-                   (azdev/face 'state wi-state)
-                   "   "
-                   (azdev/face 'assigned assigned-to)
-                   "       "
-                   (azdev/face 'type (number-to-string id))
-                   "\n")))))
+             prefix
+             (azdev/face wi-type
+                         label
+                         (if (string= wi-type "Epic")
+                             (concat "[" (alist-get 'team data) "]"))
+                         "\n"))
+          (insert
+           (azdev/face wi-type
+                       (azdev/face 'prefix prefix)
+                       " "
+                       (azdev/face 'label (s-truncate pad-len (s-pad-right pad-len " " label)))
+                       "  "
+                       (azdev/face 'state wi-state)
+                       "   "
+                       (azdev/face 'assigned assigned-to)
+                       "       "
+                       (azdev/face 'type (number-to-string id))
+                       "\n"))))))
 
 (cl-defun print-ids (store ids &optional (pri))
   "Prints the provided item IDS from STORE."
@@ -547,6 +559,7 @@ Printer is a function such as #'format or #'message"
 (defun azdev/print/tree-from-teams (teams)
   (mapcar
    (lambda (team-name)
+     (insert (azdev/face 'team-name (s-center (window-body-width) team-name)) "\n")
      (mapcar (lambda (epic-id)
                (azdev/walk-tree-printing azdev/wi-store epic-id))
              (azdev/find/epics-for-given-team azdev/wi-store team-name)))
@@ -631,3 +644,17 @@ Printer is a function such as #'format or #'message"
 
 (provide 'devops)
 ;;; devops.el ends here
+
+
+(defun azdev/parent (store id)
+  (car
+   (alist-get 'parent
+              (ht-get store id))))
+
+(azdev/parent azdev/wi-store
+              (azdev/parent azdev/wi-store 63396))
+
+team-order
+(alist-get 'parent
+           (ht-get azdev/wi-store
+                   63396))
