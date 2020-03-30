@@ -298,16 +298,6 @@ The id is extracted as the last portion of the url."
   (with-current-buffer azdev/buffer
     (erase-buffer)))
 
-(defun azdev/buffer-insert-ln (&rest str)
-  (azdev/buffer-insert (concat (apply #'format str) "\n")))
-
-(defun azdev/buffer-insert (str)
-  (with-current-buffer azdev/buffer
-    (save-excursion
-    (goto-char (point-max))
-    (insert str)
-    str)))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Search and filter store
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -418,6 +408,7 @@ Return a list containing the results of each application of FUNC, in the order p
 (defface azdev-epic
   '((default :foreground "#FF7B00"
       :height 1.5
+      :background "white"
       :weight ultra-bold))
        "Basic face for highlighting."
        :group 'azdev-faces)
@@ -431,13 +422,13 @@ Return a list containing the results of each application of FUNC, in the order p
 
 (defface azdev-dev-task
   '((default :foreground "black"  ;; "#FBD144"
-      :background "white"))
+      :background "default"))
        "Basic face for highlighting."
        :group 'azdev-faces)
 
 (defface azdev-admin-task
   '((default :foreground "#0D60AB"
-      :background "white"))
+      :background "default"))
        "Basic face for highlighting."
        :group 'azdev-faces)
 
@@ -492,9 +483,10 @@ Printer is a function such as #'format or #'message"
          
          prefix
          (azdev/face wi-type
+                     label
                      (if (string= wi-type "Epic")
-                         (concat "[" (alist-get 'team data) "]")))
-         "\n")
+                         (concat "[" (alist-get 'team data) "]"))
+                     "\n"))
       (insert
        (azdev/face wi-type
                    (azdev/face 'prefix prefix)
