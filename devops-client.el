@@ -510,7 +510,6 @@ Printer is a function such as #'format or #'message"
 (defun azdev/print/tree-from-teams (teams)
   (mapcar
    (lambda (team-name)
-     (azdev/print-team-header team-name)
      (mapcar (lambda (epic-id)
                (azdev/walk-tree-printing azdev/wi-store epic-id))
              (azdev/find/epics-for-given-team azdev/wi-store team-name)))
@@ -564,6 +563,7 @@ Printer is a function such as #'format or #'message"
 ;;; Interactive funcations
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defvar team-order nil)
 
 (defun devops-draw ()
   (interactive)
@@ -571,8 +571,13 @@ Printer is a function such as #'format or #'message"
   (switch-to-buffer azdev/buffer)
   (azdev/clear-buffer)
 
-  (azdev/print/tree-from-teams
-   (azdev/find/team-names-random-order azdev/wi-store)))
+  (azdev/print/tree-from-teams team-order))
+
+(defun devops-randomise-team-order ()
+  (interactive)
+
+  (setq team-order
+        (azdev/find/team-names-random-order azdev/wi-store)))
 
 (defun devops ()
   (interactive)
@@ -581,6 +586,9 @@ Printer is a function such as #'format or #'message"
   (setq azdev/wi-store (azdev/new-store))
 
   (azdev/fetch-and-set-all-items azdev/wi-store)
+
+  (if (not team-order)
+      (devops-randomise-team-order))
 
   (devops-draw))
 
