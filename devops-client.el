@@ -196,9 +196,9 @@ NAME is either \"CHILD\" or \"PARENT\" "
       (state . ,(alist-get 'System\.State fields))
       (reason . ,(alist-get 'System\.Reason fields))
       (assigned-to . ,(id->identity 'System\.AssignedTo fields))
-      (created-date . ,(alist-get 'System\.CreatedDate fields))
+      (created-date . ,(date-to-time (alist-get 'System\.CreatedDate fields)))
       (created-by . ,(id->identity 'System\.CreatedBy fields))
-      (changed-date . ,(alist-get 'System\.ChangedDate fields))
+      (changed-date . ,(date-to-time (alist-get 'System\.ChangedDate fields)))
       (changed-by . ,(id->identity 'System\.ChangedBy fields))
       (comment-count . ,(alist-get 'System\.CommentCount fields))
       (board-column . ,(alist-get 'System\.BoardColumn fields))
@@ -302,6 +302,8 @@ The id is extracted as the last portion of the url."
 ;;; Search and filter store
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; Filtering works by functions azdev/pred/*, which create predicate functions (as closures) that can be combined with and/or.
+
 
 ;; (azdev/find/epics-for-given-team azdev/wi-store "AerOpt")
 
@@ -329,6 +331,20 @@ PRED is a function which takes an item."
                        k
                      nil))
                  store))))
+
+(cl-defun azdev/compute-days-since-time (work-item time &optional (key 'changed-date))
+  "Utility function to compute the number of days before TIME that WORK ITEM was changed (or some other time KEY)."
+  (/ (float-time
+      (time-subtract
+       time
+       (alist-get key v)
+       )) (* 60 60 24)))
+
+(cl-defun azdev/pred/days-since-time (days &optional (key 'changed-date))
+  "Computes the number of days since the predicate function was created."
+  (let ((time-now (current-time)))
+    (lambda (v)
+      (azdev/compute-days-since-time v time-now key))))
 
 (defun azdev/pred/string-value (key string)
   (lambda (v)
@@ -431,6 +447,27 @@ Return a list containing the results of each application of FUNC, in the order p
       :background "default"))
        "Basic face for highlighting."
        :group 'azdev-faces)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Filtering
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(setq azdev/work-item-show-filter 'filter-only-not-closed)
+;; (setq azdev/work-item-show-filter 'filter-nothing)
+
+(defun filter-nothing (data level)
+  "Show all work items (based on work item DATA and LEVEL)."
+  t)
+
+(defun filter-only-not-closed (data level)
+  "Show only items that are not closed (based on work item DATA and LEVEL)."
+  (let* ((id (alist-get 'id data))
+         (label (alist-get 'title data))
+         (wi-type (alist-get 'work-item-type data))
+         (wi-state (alist-get 'state data))
+         (assigned-to (alist-get 'assigned-to data)))
+    (not  (string= wi-state "Closed"))))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Printing
