@@ -399,10 +399,6 @@ Return a list containing the results of each application of FUNC, in the order p
           (azdev/--listify child-result)))
       node-result)))
 
-(defun azdev/prefix-printing-function (level)
-  "Adds starts to the start, to emulate org mode prefixes"
-  (concat (apply 'concat (make-list (+ level 2) "*")) " "))
-
 (defun azdev/walk-tree-printing (store start-node)
   (azdev/walk-tree store
                         start-node
@@ -414,6 +410,10 @@ Return a list containing the results of each application of FUNC, in the order p
 ;; Printing
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defun azdev/prefix-printing-function (level)
+  "Adds starts to the start, to emulate org mode prefixes"
+  (apply 'concat (make-list (+ level) "    ")))
+
 (cl-defun azdev/print-work-item (data printer &optional (level 0))
   "Given work item DATA, print it using the PRINTER function.
 
@@ -423,12 +423,19 @@ Printer is a function such as #'format or #'message"
          (label (alist-get 'title data))
          (wi-type (alist-get 'work-item-type data))
          (wi-state (alist-get 'state data))
-         (assigned-to (if-let ((name (alist-get 'assigned-to data)))
-                          name
-                        "Not assigned")))
-    (funcall printer "%s %s  [%s]   <%s>        %s                (%s)" prefix label id wi-state assigned-to wi-type)))
+         (assigned-to (s-pad-right
+                       20
+                       " "
+                       (s-downcase
+                        (car
+                         (s-split "@"
+                                  (if-let ((name (alist-get 'assigned-to data)))
+                                      name
+                                    "---"))))))
+         (pad-len (- 70 (+ (length prefix) (length wi-state)))))
+    (funcall printer "%s [%s]     %s   <%s>        %s (%s)" prefix wi-state (s-truncate pad-len (s-pad-right pad-len " " label)) id assigned-to wi-type)))
 
-(cl-defun print-ids (store ids &optional (printer #'format))
+(cl-defun print-ids (store ids &optional (pri))
   "Prints the provided item IDS from STORE."
   (mapcar
     (lambda (item-id)
@@ -436,7 +443,7 @@ Printer is a function such as #'format or #'message"
     ids))
 
 (defun azdev/print-team-header (team-name)
-  (azdev/buffer-insert-ln "* %s" team-name))
+  (azdev/buffer-insert-ln "%s" team-name))
 
 (defun azdev/print/tree-from-teams (teams)
   (mapcar
@@ -502,8 +509,7 @@ Printer is a function such as #'format or #'message"
   (azdev/clear-buffer)
 
   (azdev/print/tree-from-teams
-   (azdev/find/team-names-random-order azdev/wi-store))
-  (org-mode))
+   (azdev/find/team-names-random-order azdev/wi-store)))
 
 (defun devops ()
   (interactive)
