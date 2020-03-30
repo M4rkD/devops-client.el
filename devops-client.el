@@ -403,18 +403,71 @@ Return a list containing the results of each application of FUNC, in the order p
   (azdev/walk-tree store
                         start-node
                         (lambda (store node-id level)
-                          (azdev/print-work-item (ht-get store node-id) #'azdev/buffer-insert-ln level))
+                          (azdev/print-work-item (ht-get store node-id) level))
                         0))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Faces
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defvar azdev-faces-alist '((epic . 'azdev-epic)
+                            (feature . 'azdev-feature)
+                            (dev-task . 'azdev-dev-task)
+                            (admin-task . 'azdev-admin-task)))
+
+(defface azdev-epic
+  '((default :foreground "#FF7B00"
+      :height 1.5
+      :weight ultra-bold))
+       "Basic face for highlighting."
+       :group 'azdev-faces)
+
+(defface azdev-feature
+  '((default :foreground "#773B93"
+      :height 1.2
+      :weight bold))
+  "Basic face for highlighting."
+       :group 'azdev-faces)
+
+(defface azdev-dev-task
+  '((default :foreground "black"  ;; "#FBD144"
+      :background "white"))
+       "Basic face for highlighting."
+       :group 'azdev-faces)
+
+(defface azdev-admin-task
+  '((default :foreground "#0D60AB"
+      :background "white"))
+       "Basic face for highlighting."
+       :group 'azdev-faces)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Printing
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun azdev/prefix-printing-function (level)
-  "Adds starts to the start, to emulate org mode prefixes"
+  "Adds starts of depth LEVEL to the string start, to emulate org mode prefixes"
   (apply 'concat (make-list (+ level) "    ")))
 
-(cl-defun azdev/print-work-item (data printer &optional (level 0))
+(defun azdev/convert-string-to-face-symbol (id)
+  (cond
+   ((string= id "Epic") 'epic)
+   ((string= id "Feature") 'feature)
+   ((string= id "Development Task") 'dev-task)
+   ((string= id "Admin Task") 'admin-task)
+   (t id))
+  )
+
+(defun azdev/face (id &rest str)
+  "Choose the font face by identifier ID and apply to STR."
+  (let* ((ident (azdev/convert-string-to-face-symbol id))
+         (str (apply #'concat str))
+         (face (or (alist-get ident azdev-faces-alist)
+                   'default)))
+    (put-text-property 0 (length str) 'face face str)
+    str))
+
+(cl-defun azdev/print-work-item (data &optional (level 0))
   "Given work item DATA, print it using the PRINTER function.
 
 Printer is a function such as #'format or #'message"
@@ -422,7 +475,7 @@ Printer is a function such as #'format or #'message"
          (id (alist-get 'id data))
          (label (alist-get 'title data))
          (wi-type (alist-get 'work-item-type data))
-         (wi-state (alist-get 'state data))
+         (wi-state (concat "[" (s-pad-right 8 " " (alist-get 'state data)) "]"))
          (assigned-to (s-pad-right
                        20
                        " "
@@ -432,18 +485,35 @@ Printer is a function such as #'format or #'message"
                                   (if-let ((name (alist-get 'assigned-to data)))
                                       name
                                     "---"))))))
-         (pad-len (- 70 (+ (length prefix) (length wi-state)))))
-    (funcall printer "%s [%s]     %s   <%s>        %s (%s)" prefix wi-state (s-truncate pad-len (s-pad-right pad-len " " label)) id assigned-to wi-type)))
+         (pad-len (- 70 (length prefix))))
+    (if (or (string= wi-type "Epic")
+            (string= wi-type "Feature"))
+        (insert
+         
+         prefix
+         (azdev/face wi-type
+                     (if (string= wi-type "Epic")
+                         (concat "[" (alist-get 'team data) "]")))
+         "\n")
+      (insert
+       (azdev/face wi-type
+                   (azdev/face 'prefix prefix)
+                   " "
+                   (azdev/face 'label (s-truncate pad-len (s-pad-right pad-len " " label)))
+                   "  "
+                   (azdev/face 'state wi-state)
+                   "   "
+                   (azdev/face 'assigned assigned-to)
+                   "       "
+                   (azdev/face 'type (number-to-string id))
+                   "\n")))))
 
 (cl-defun print-ids (store ids &optional (pri))
   "Prints the provided item IDS from STORE."
   (mapcar
     (lambda (item-id)
-      (azdev/print-work-item (ht-get store item-id) #'format))
+      (azdev/print-work-item (ht-get store item-id)))
     ids))
-
-(defun azdev/print-team-header (team-name)
-  (azdev/buffer-insert-ln "%s" team-name))
 
 (defun azdev/print/tree-from-teams (teams)
   (mapcar
@@ -453,6 +523,7 @@ Printer is a function such as #'format or #'message"
                (azdev/walk-tree-printing azdev/wi-store epic-id))
              (azdev/find/epics-for-given-team azdev/wi-store team-name)))
    teams))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Fetching and storing work items
