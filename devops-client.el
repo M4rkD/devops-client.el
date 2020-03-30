@@ -29,6 +29,7 @@
 (defvar az-devops/base-url "https://dev.azure.com/swansea-university/_apis"
   "The base url of the organisation.")
 
+
 (defvar az-devops/default-project "Swansea%20Academy%20of%20Advanced%20Computing"
   "The default project.")
 
@@ -69,15 +70,41 @@
 ;;; Communications
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defun az-devops/catch-request-errors (response)
+  "Throw the appropriate error if RESPONSE does not have status 200.
+Otherwise return the RESPONSE, unchanged."
+  (if (= 200 (request-response-status-code response))
+      response
+    (let* ((is-json (cl-search "json" (request-response-header r "Content-Type")))
+           (raw-data (request-response-data response)))
+
+        (user-error "Error in response: %s" raw-data))))
+
 (defun az-devops/dispatch-get-request (uri)
-  "Dispatch GET request to endpoint URI (with json parsing)."
+  (az-devops/--dispatch-request uri "GET"))
+
+(defun az-devops/dispatch-post-request (uri &rest request-args)
+  (apply #'az-devops/--dispatch-request uri "POST" request-args))
+
+(cl-defun az-devops/handle-400 (&key data error-thrown symbol-status response  &allow-other-keys)
+  (user-error "400 Error"))
+
+(defun az-devops/--dispatch-request (uri method &rest request-args)
+  "Dispatch request to endpoint URI (with json parsing) and METHOD.
+Return parsed json data as an alist.
+METHOD should be a string such as \"GET\" or \"POST\""
   (let ((url (concat az-devops/base-url uri)))
-    (message "Calling: %s" url)
-    (request
-      url
-      :headers (default-headers)
-      :parser 'json-read
-      :sync t)))
+    (message "Calling: [%S] %s" method url)
+    (request-response-data
+     (az-devops/catch-request-errors
+      (apply #'request
+             url
+             :type method
+             :parser 'json-read
+             :headers (default-headers)
+             :sync t
+             :status-code '((400 . az-devops/handle-400))
+             request-args)))))
 
 (defun az-devops/get-request (uri)
   "GET from URI of the current project."
@@ -89,17 +116,7 @@
   ;; wiql api used is documented at: https://docs.microsoft.com/en-us/rest/api/azure/devops/wit/wiql/query%20by%20wiql?view=azure-devops-rest-5.1
   (let ((wiql-url (format "%s/wit/wiql?api-version=5.1" az-devops/base-url)))
     (message "Wiql: %s" wiql)
-    (request-response-data
-     (request
-       wiql-url
-       :type "POST"
-       :headers (default-headers)
-       :data (json-encode `(("query" . ,wiql)))
-       :parser 'json-read
-       :success (cl-function
-                 (lambda (&key data &allow-other-keys)
-                   (message "I sent: %S" (assoc-default 'args data))))
-       :sync t))))
+    (az-devops/dispatch-post-request wiql-url :data (json-encode `(("query" . ,wiql))))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -187,14 +204,18 @@ The value key is a vector of values."
   (mapcar (apply-partially 'alist-get 'id)
           (alist-get 'workItems wiql-query-response)))
 
+(defun az-devops/query-work-item-ids (&rest wiql)
+  "Fetch the ids matching a given WIQL query."
+  (az-devops/extract-ids-from-query-response
+              (az-devops/query
+               (apply #'format wiql))))
+
 (defun az-devops/query-work-items (store &rest wiql)
   "Fetch work items for a given WIQL query into STORE.
 Return the ids of the query results.
 WIQL can be a string or a format string, such as that passed to message or
 the format function."
-  (let ((ids (az-devops/extract-ids-from-query-response
-              (az-devops/query
-               (apply #'format wiql)))))
+  (let ((ids (az-devops/query-work-item-ids wiql)))
     (az-devops/fetch-work-items store ids)
     ids))
 
@@ -204,9 +225,16 @@ the format function."
 
 (defun az-devops/get-projects ()
   "Fetch a list of all projects."
-   (az-devops/GET-request "/projects"))
+   (az-devops/get-request "/projects"))
 
 (defun az-devops/get-teams ()
+  "Fetch a list of all teams for the current project."
+  (alist-get 'value
+             (request-response-data
+              (az-devops/dispatch-get-request
+               (concat "/projects/" az-devops/default-project "/teams")))))
+
+(defun az-devops/get-all-work-items ()
   "Fetch a list of all teams for the current project."
   (alist-get 'value
              (request-response-data
@@ -232,6 +260,13 @@ This function assumes that each team maps to an AreaPath."
   (az-devops/query-work-items
    store
    "SELECT * FROM workitems WHERE [System.WorkItemType] = 'EPIC'"))
+
+(defun az-devops/all-work-items (store)
+  "Fetch all epics as a list of ids stored in STORE."
+  (az-devops/query-work-items
+   store
+   "SELECT * FROM workitems"))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Printing
