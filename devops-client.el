@@ -416,11 +416,11 @@ Return a list containing the results of each application of FUNC, in the order p
 ;;; Faces
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defvar azdev-faces-alist '((epic . 'azdev-epic)
-                            (feature . 'azdev-feature)
-                            (dev-task . 'azdev-dev-task)
-                            (admin-task . 'azdev-admin-task)
-                            (team-name . 'azdev-team-name)))
+(defvar azdev-faces-alist '((epic . azdev-epic)
+                            (feature . azdev-feature)
+                            (dev-task . azdev-dev-task)
+                            (admin-task . azdev-admin-task)
+                            (team-name . azdev-team-name)))
 
 (defface azdev-epic
   '((default :foreground "#FF7B00"
@@ -534,7 +534,7 @@ Printer is a function such as #'format or #'message"
              (azdev/face wi-type
                          label
                          (if (string= wi-type "Epic")
-                             (concat "[" (alist-get 'team data) "]"))
+                             (s-pad-left (- (window-width) (length label)) " " (alist-get 'team data)))
                          "\n"))
           (insert
            (azdev/face wi-type
@@ -545,16 +545,23 @@ Printer is a function such as #'format or #'message"
                        (azdev/face 'state wi-state)
                        "   "
                        (azdev/face 'assigned assigned-to)
-                       "       "
-                       (azdev/face 'type (number-to-string id))
-                       "\n"))))))
+                       "       "))
+
+          (insert-text-button (number-to-string id) :action 'button-visit-link
+                         'follow-link t)
+          (insert
+           (azdev/face wi-type
+            "\n"))))))
+
+(defun azdev/button-visit-link (button)
+  (debug))
 
 (cl-defun print-ids (store ids &optional (pri))
   "Prints the provided item IDS from STORE."
   (mapcar
-    (lambda (item-id)
-      (azdev/print-work-item (ht-get store item-id)))
-    ids))
+   (lambda (item-id)
+     (azdev/print-work-item (ht-get store item-id)))
+   ids))
 
 (defun azdev/print/tree-from-teams (teams)
   (mapcar
@@ -644,17 +651,3 @@ Printer is a function such as #'format or #'message"
 
 (provide 'devops)
 ;;; devops.el ends here
-
-
-(defun azdev/parent (store id)
-  (car
-   (alist-get 'parent
-              (ht-get store id))))
-
-(azdev/parent azdev/wi-store
-              (azdev/parent azdev/wi-store 63396))
-
-team-order
-(alist-get 'parent
-           (ht-get azdev/wi-store
-                   63396))
