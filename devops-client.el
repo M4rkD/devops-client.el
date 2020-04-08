@@ -681,5 +681,13 @@ Printer is a function such as #'format or #'message"
 
   (devops-draw))
 
+
+(defun add-doom-mapping ()
+  "Add a keybinding in doom emacs for devops drawing"
+  (interactive)
+  (map! :leader
+        :desc "Devops Draw"
+        :n "dd" #'devops-draw))
+
 (provide 'devops)
 ;;; devops.el ends here
