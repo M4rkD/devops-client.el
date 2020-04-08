@@ -344,7 +344,8 @@ PRED is a function which takes an item."
   "Computes the number of days since the predicate function was created."
   (let ((time-now (current-time)))
     (lambda (v)
-      (azdev/compute-days-since-time v time-now key))))
+      (> days
+         (azdev/compute-days-since-time v time-now key)))))
 
 (defun azdev/pred/string-value (key string)
   (lambda (v)
@@ -459,7 +460,7 @@ Return a list containing the results of each application of FUNC, in the order p
 ;; Filtering
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(setq azdev/work-item-show-filter 'filter-only-not-closed)
+(setq azdev/work-item-show-filter 'filter-open-or-recently-closed)
 
 ;; (setq azdev/work-item-show-filter 'filter-nothing)
 
@@ -474,18 +475,28 @@ Return a list containing the results of each application of FUNC, in the order p
          (wi-type (alist-get 'work-item-type data))
          (changed-time (alist-get 'changed-date data))
          (wi-state (alist-get 'state data))
+         (assigned-to (alist-get 'assigned-to data)))
+    (not  (string= wi-state "Closed"))))
+
+
+(defun filter-open-or-recently-closed (data level)
+  "Show only items that are not closed (based on work item DATA and LEVEL)."
+  (let* ((id (alist-get 'id data))
+         (label (alist-get 'title data))
+         (wi-type (alist-get 'work-item-type data))
+         (changed-time (alist-get 'changed-date data))
+         (wi-state (alist-get 'state data))
          (assigned-to (alist-get 'assigned-to data))
          (check-time (azdev/pred/days-since-time 7)))
     (or (not  (string= wi-state "Closed"))
         (funcall check-time data))))
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Printing
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun azdev/prefix-printing-function (level)
-  "Adds starts of depth LEVEL to the string start, to emulate org mode prefixes"
+  "Add start of depth LEVEL to the string start, to emulate org mode prefixes."
   (apply 'concat (make-list (+ level) "    ")))
 
 (defun azdev/convert-string-to-face-symbol (id)
@@ -506,13 +517,28 @@ Return a list containing the results of each application of FUNC, in the order p
     (put-text-property 0 (length str) 'face face str)
     str))
 
-(cl-defun azdev/print-work-item (data &optional (level 0))
-  "Given work item DATA, print it using the PRINTER function.
+(defun azdev/string-for-epic-or-feature (data level)
+  "Return a display string for a heading (either an epic or a feature) given by DATA at LEVEL."
+  (let* ((prefix (azdev/prefix-printing-function level))
+         (id (alist-get 'id data))
+         (team (alist-get 'team data))
+         (label (alist-get 'title data))
+         (wi-type (alist-get 'work-item-type data)))
+    (concat
+     prefix
+     (azdev/face wi-type
+                 label
+                 (if (string= wi-type "Epic")
+                     (s-pad-left (- (window-width) (length label)) " " team))
+                 "\n"))))
 
-Printer is a function such as #'format or #'message"
+(defun azdev/string-for-task (data level)
   (let* ((prefix (azdev/prefix-printing-function level))
          (id (alist-get 'id data))
          (label (alist-get 'title data))
+         (changed-date (format-time-string "%Y-%m-%d"
+                                           (alist-get 'changed-date data)))
+         (wi-type (alist-get 'work-item-type data))
          (wi-type (alist-get 'work-item-type data))
          (wi-state (concat "[" (s-pad-right 8 " " (alist-get 'state data)) "]"))
          (assigned-to (s-pad-right
@@ -525,33 +551,39 @@ Printer is a function such as #'format or #'message"
                                       name
                                     "---"))))))
          (pad-len (- 70 (length prefix))))
+    (concat
+     (azdev/face wi-type
+                 (azdev/face 'prefix prefix)
+                 " "
+                 (azdev/face 'label (s-truncate pad-len (s-pad-right pad-len " " label)))
+                 "  "
+                 (azdev/face 'state wi-state)
+                 "   "
+                 (azdev/face 'assigned assigned-to)
+                 "       ")
+
+     ;; (insert-text-button (number-to-string id) :action 'button-visit-link
+     ;;                     'follow-link t)
+     (number-to-string id)
+
+     "    "
+     (azdev/face wi-type changed-date)
+     (azdev/face wi-type "\n"))))
+
+(cl-defun azdev/print-work-item (data &optional (level 0))
+  (if-let ((str (azdev/string-for-work-item data level)))
+      (insert str)))
+
+(cl-defun azdev/string-for-work-item (data &optional (level 0))
+  "Given work item DATA, print it using the PRINTER function.
+
+Printer is a function such as #'format or #'message"
+  (let* ((wi-type (alist-get 'work-item-type data)))
     (if (funcall azdev/work-item-show-filter data level)
         (if (or (string= wi-type "Epic")
                 (string= wi-type "Feature"))
-            (insert
-         
-             prefix
-             (azdev/face wi-type
-                         label
-                         (if (string= wi-type "Epic")
-                             (s-pad-left (- (window-width) (length label)) " " (alist-get 'team data)))
-                         "\n"))
-          (insert
-           (azdev/face wi-type
-                       (azdev/face 'prefix prefix)
-                       " "
-                       (azdev/face 'label (s-truncate pad-len (s-pad-right pad-len " " label)))
-                       "  "
-                       (azdev/face 'state wi-state)
-                       "   "
-                       (azdev/face 'assigned assigned-to)
-                       "       "))
-
-          (insert-text-button (number-to-string id) :action 'button-visit-link
-                         'follow-link t)
-          (insert
-           (azdev/face wi-type
-            "\n"))))))
+            (azdev/string-for-epic-or-feature data level)
+          (azdev/string-for-task data level)))))
 
 (defun azdev/button-visit-link (button)
   (debug))
@@ -625,7 +657,7 @@ Printer is a function such as #'format or #'message"
 (defun devops-draw ()
   (interactive)
 
-  (switch-to-buffer azdev/buffer)
+  (pop-to-buffer azdev/buffer)
   (azdev/clear-buffer)
 
   (azdev/print/tree-from-teams team-order))
