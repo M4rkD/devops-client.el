@@ -46,6 +46,9 @@
 
 (defvar azdev/auth-token nil)
 
+(defvar azdev/work-item-show-filter 'filter-open-or-recently-closed)
+;; (defvar azdev/work-item-show-filter 'filter-nothing)
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Tokens
@@ -292,14 +295,6 @@ The id is extracted as the last portion of the url."
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Buffer management
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defun azdev/clear-buffer ()
-  (with-current-buffer azdev/buffer
-    (erase-buffer)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Search and filter store
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -399,7 +394,7 @@ PRED is a function which takes an item."
                             (feature . azdev-feature)
                             (dev-task . azdev-dev-task)
                             (admin-task . azdev-admin-task)
-                            (team-name . azdev-team-name)))
+                            (heading . azdev-heading)))
 
 (defface azdev-epic
   '((default :foreground "#FF7B00"
@@ -428,19 +423,15 @@ PRED is a function which takes an item."
        "Basic face for highlighting."
        :group 'azdev-faces)
 
-(defface azdev-team-name
+(defface azdev-heading
   '((default :foreground "white"
       :background "DimGray"))
        "Basic face for highlighting."
        :group 'azdev-faces)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Filtering
+;; Filtering functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(setq azdev/work-item-show-filter 'filter-open-or-recently-closed)
-
-;; (setq azdev/work-item-show-filter 'filter-nothing)
 
 (defun filter-nothing (data level)
   "Show all work items (based on work item DATA and LEVEL)."
@@ -473,7 +464,7 @@ PRED is a function which takes an item."
 ;; Printing
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun azdev/prefix-printing-function (level)
+(defun azdev/prefix-formatting-function (level)
   "Add start of depth LEVEL to the string start, to emulate org mode prefixes."
   (apply 'concat (make-list (+ level) "    ")))
 
@@ -497,7 +488,7 @@ PRED is a function which takes an item."
 
 (defun azdev/string-for-epic-or-feature (data level)
   "Return a display string for a heading (either an epic or a feature) given by DATA at LEVEL."
-  (let* ((prefix (azdev/prefix-printing-function level))
+  (let* ((prefix (azdev/prefix-formatting-function level))
          (id (alist-get 'id data))
          (team (alist-get 'team data))
          (label (alist-get 'title data))
@@ -507,11 +498,10 @@ PRED is a function which takes an item."
      (azdev/face wi-type
                  label
                  (if (string= wi-type "Epic")
-                     (s-pad-left (- (window-width) (length label)) " " team))
-                 "\n"))))
+                     (s-pad-left (- (window-width) (length label)) " " team))))))
 
 (defun azdev/string-for-task (data level)
-  (let* ((prefix (azdev/prefix-printing-function level))
+  (let* ((prefix (azdev/prefix-formatting-function level))
          (id (alist-get 'id data))
          (label (alist-get 'title data))
          (changed-date (format-time-string "%Y-%m-%d"
@@ -540,17 +530,10 @@ PRED is a function which takes an item."
                  (azdev/face 'assigned assigned-to)
                  "       ")
 
-     ;; (insert-text-button (number-to-string id) :action 'button-visit-link
-     ;;                     'follow-link t)
      (number-to-string id)
 
      "    "
-     (azdev/face wi-type changed-date)
-     (azdev/face wi-type "\n"))))
-
-(cl-defun azdev/pretty-printer-work-item (data &optional (level 0))
-  (if-let ((str (azdev/string-for-work-item data level)))
-      (insert str)))
+     (azdev/face wi-type changed-date))))
 
 (cl-defun azdev/string-for-work-item (data &optional (level 0))
   "Given work item DATA, print it using the PRINTER function.
@@ -562,39 +545,16 @@ Printer is a function such as #'format or #'message"
             (azdev/string-for-epic-or-feature data level)
           (azdev/string-for-task data level))))
 
-(defun azdev/fetch-formatted-strings (store ids-and-levels)
-  "Return a list of cons pairs (id . formatted-string) set of \
-IDS-AND-LEVELS in STORE.
-IDS-AND-LEVELS is a list of cons pairs (level . id)"
-  (mapcar
-   (lambda (pair)
-     (let ((level (car pair))
-           (id (cdr pair)))
-       (cons id
-             (azdev/string-for-work-item (ht-get store id) level))
-       ))
-   ids-and-levels))
+(defun azdev/heading-as-formatted-string (heading-string)
+  "Format the HEADING-STRING as a header."
+  (azdev/face 'heading (s-center (window-body-width) heading-string)))
 
-(defun azdev/print/tree-from-teams (teams)
-  "Print the lines for all TEAMS using insert."
-  (mapc
-   (lambda (team-name)
-     (let ((team-header (concat
-                         (azdev/face 'team-name (s-center (window-body-width) team-name))
-                         "\n"))
-           (lines (azdev/team-work-item-lines azdev/wi-store team-name)))
-       (insert team-header)
-       (dolist (line lines)
-         (insert (cdr line)))))
-   teams))
-
-(defun azdev/team-work-item-lines (store team-name)
-  "Get formatted lines for a given team."
+(defun azdev/team-work-item-id+level (store team-name)
+  "Get (level . id) cons pairs for items to show."
   (mapcan (lambda (epic-id)
-            (azdev/fetch-formatted-strings
-             store
-             (azdev/walk-tree store epic-id)))
+            (azdev/walk-tree store epic-id))
           (azdev/find/epics-for-given-team store team-name)))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Fetching and storing work items
@@ -640,6 +600,54 @@ IDS-AND-LEVELS is a list of cons pairs (level . id)"
                                     (azdev/query/all-work-items))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Creating ewoc
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun azdev/ewoc-printer (ids+level)
+  "TODO: the store is accessed directly here"
+  (let ((level (car ids+level))
+        (id (cdr ids+level)))
+    (if level
+        (insert
+         (azdev/string-for-work-item (ht-get azdev/wi-store id) level))
+      ;; a nil level means this is a heading
+      (insert (azdev/heading-as-formatted-string id)))))
+
+
+(defun azdevops/add-team-items-to-ewoc (ewoc store teams)
+  "Print the lines for all TEAMS using insert."
+  (mapc
+   (lambda (team-name)
+     (ewoc-enter-last ewoc
+                      `(nil . ,team-name))
+
+     (azdev/add-items-to-ewoc
+      ewoc
+      (azdev/team-work-item-id+level store team-name)))
+   teams))
+
+(cl-defun azdev/add-items-to-ewoc (ewoc ids+level)
+  "Prints the provided item IDS from STORE."
+  (mapc
+   (lambda (id+level)
+     (ewoc-enter-last ewoc id+level))
+   ids+level))
+
+(defun azdev/create-teams-ewoc! (store teams)
+  (pop-to-buffer "*devops-teams*")
+  (erase-buffer)
+  (let ((ewoc
+         (ewoc-create
+          #'azdev/ewoc-printer)))
+    (azdevops/add-team-items-to-ewoc ewoc store teams)
+    ewoc))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Interacting with ewoc
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Interactive funcations
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -683,10 +691,8 @@ IDS-AND-LEVELS is a list of cons pairs (level . id)"
 (defun devops-draw ()
   (interactive)
 
-  (pop-to-buffer azdev/buffer)
-  (azdev/clear-buffer)
-
-  (azdev/print/tree-from-teams team-order))
+  (setq azdev/wi-ewoc
+        (azdev/create-teams-ewoc! azdev/wi-store team-order)))
 
 (defun devops-randomise-team-order ()
   (interactive)

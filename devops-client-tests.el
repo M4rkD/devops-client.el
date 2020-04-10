@@ -215,10 +215,19 @@ Use azdev-test/item! to create the items."
               (2 . 4)))))
 
 (ert-deftest test-print-from-teams-list-of-strings ()
+  "team-work-item-id+level should return list LEVEL . ID cons pairs"
+  (should (equal (azdev/team-work-item-id+level
+                  azdev-test/mock-store
+                  azdev-test/mock-store--team-name)
+                 '((0 . 100) (1 . 11) (2 . 1) (2 . 2) (1 . 12) (2 . 3) (2 . 4)))))
+
+
+(ert-deftest test-print-from-teams-list-of-strings ()
   "tree-from-teams should return a list of strings."
-  (should (azdev/team-work-item-lines
-            azdev-test/mock-store
-            azdev-test/mock-store--team-name)))
+  (should (equal (azdev/team-work-item-id+level
+                  azdev-test/mock-store
+                  azdev-test/mock-store--team-name)
+                 '((0 . 100) (1 . 11) (2 . 1) (2 . 2) (1 . 12) (2 . 3) (2 . 4)))))
 
 (provide 'devops-client-tests)
 ;;; devops-client-tests.el ends here
