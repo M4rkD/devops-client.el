@@ -22,6 +22,7 @@
 (require 'request)
 (require 'ht)
 (require 'dash)
+(require 'cl-lib)
 
 (defun azdev/new-store ()
   (ht-create))
@@ -305,8 +306,6 @@ The id is extracted as the last portion of the url."
 ;; Filtering works by functions azdev/pred/*, which create predicate functions (as closures) that can be combined with and/or.
 
 
-;; (azdev/find/epics-for-given-team azdev/wi-store "AerOpt")
-
 (defun azdev/find/epics-for-given-team (store name)
   (azdev/find store (azdev/pred/and (azdev/pred/epic) (azdev/pred/team-name name))))
 
@@ -380,38 +379,17 @@ PRED is a function which takes an item."
 ;; Walk the tree
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun azdev/--listify (o)
-  "Returns a list with a single element O, if O is not a list.
-Otherwise return O unchanged."
-  (if (listp o)
-      o
-    (list o)))
-
-(cl-defun azdev/walk-tree (store curr-node func level)
-  "Walk the tree, calling the function FUNC at each node.
-Tree is walked by walking through parents, and mapping over each child for each parent. There is probably a more elegant way to return the result.
-Return a list containing the results of each application of FUNC, in the order performed, in a flattened list."
-  (let* ((data (ht-get store curr-node))
-          (node-result (funcall func store curr-node level))
-          (children (alist-get 'children data))
-          (child-result (mapcar
-                        (lambda (node)
-                          (azdev/walk-tree store node func (1+ level)))
-                        children)))
-
-    (if children
-        (-flatten
-          (append
-          (azdev/--listify node-result)
-          (azdev/--listify child-result)))
-      node-result)))
-
-(defun azdev/walk-tree-printing (store start-node)
-  (azdev/walk-tree store
-                        start-node
-                        (lambda (store node-id level)
-                          (azdev/print-work-item (ht-get store node-id) level))
-                        0))
+(cl-defun azdev/walk-tree (store curr-node-id &optional (level 0) (acc nil))
+  (let* ((data (ht-get store curr-node-id))
+         (children (alist-get 'children data)))
+    (if data
+        (if children
+          (-reduce-from (lambda (acc-child child-node-id)
+                          (append acc-child (azdev/walk-tree store child-node-id (+ level 1))))
+                        (append acc (list (cons level curr-node-id))) ;; inital value
+                        children)
+          (list (cons level curr-node-id)))
+      nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Faces
@@ -570,7 +548,7 @@ Return a list containing the results of each application of FUNC, in the order p
      (azdev/face wi-type changed-date)
      (azdev/face wi-type "\n"))))
 
-(cl-defun azdev/print-work-item (data &optional (level 0))
+(cl-defun azdev/pretty-printer-work-item (data &optional (level 0))
   (if-let ((str (azdev/string-for-work-item data level)))
       (insert str)))
 
@@ -579,31 +557,44 @@ Return a list containing the results of each application of FUNC, in the order p
 
 Printer is a function such as #'format or #'message"
   (let* ((wi-type (alist-get 'work-item-type data)))
-    (if (funcall azdev/work-item-show-filter data level)
-        (if (or (string= wi-type "Epic")
+    (if (or (string= wi-type "Epic")
                 (string= wi-type "Feature"))
             (azdev/string-for-epic-or-feature data level)
-          (azdev/string-for-task data level)))))
+          (azdev/string-for-task data level))))
 
-(defun azdev/button-visit-link (button)
-  (debug))
-
-(cl-defun print-ids (store ids &optional (pri))
-  "Prints the provided item IDS from STORE."
+(defun azdev/fetch-formatted-strings (store ids-and-levels)
+  "Return a list of cons pairs (id . formatted-string) set of \
+IDS-AND-LEVELS in STORE.
+IDS-AND-LEVELS is a list of cons pairs (level . id)"
   (mapcar
-   (lambda (item-id)
-     (azdev/print-work-item (ht-get store item-id)))
-   ids))
+   (lambda (pair)
+     (let ((level (car pair))
+           (id (cdr pair)))
+       (cons id
+             (azdev/string-for-work-item (ht-get store id) level))
+       ))
+   ids-and-levels))
 
 (defun azdev/print/tree-from-teams (teams)
-  (mapcar
+  "Print the lines for all TEAMS using insert."
+  (mapc
    (lambda (team-name)
-     (insert (azdev/face 'team-name (s-center (window-body-width) team-name)) "\n")
-     (mapcar (lambda (epic-id)
-               (azdev/walk-tree-printing azdev/wi-store epic-id))
-             (azdev/find/epics-for-given-team azdev/wi-store team-name)))
+     (let ((team-header (concat
+                         (azdev/face 'team-name (s-center (window-body-width) team-name))
+                         "\n"))
+           (lines (azdev/team-work-item-lines azdev/wi-store team-name)))
+       (insert team-header)
+       (dolist (line lines)
+         (insert (cdr line)))))
    teams))
 
+(defun azdev/team-work-item-lines (store team-name)
+  "Get formatted lines for a given team."
+  (mapcan (lambda (epic-id)
+            (azdev/fetch-formatted-strings
+             store
+             (azdev/walk-tree store epic-id)))
+          (azdev/find/epics-for-given-team store team-name)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Fetching and storing work items
@@ -651,6 +642,41 @@ Printer is a function such as #'format or #'message"
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Interactive funcations
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(setq team-order (vector
+                  ;;"Computational Psychology Masters"
+                  "CFD parallel preprocessor"
+                  "SOMBRERO"
+                  ;; "FASTSUM"
+                  ;; "LLR Thirring model"
+                  ;;"Professional development"
+                  "Maxwell-Nefem Code"
+                  "Marinos Manolesos"
+                  ;;"Coastal"
+                  "Richard ORorke"
+                  ;;"Sp(2N) BSM"
+                  ;; "Cluster prioritisation"
+                  "Collaboration with Don Webber"
+                  ;;"Swansea Academy of Advanced Computing"
+                  ;;"Training"
+                  ;; "Many-flavour QCD"
+                  ;;"Support activities"
+                  "AIMLAC CDT"
+                  ;;"Supercomputing Wales administration"
+                  "Mahsa Mokhtari"
+                  "FEA for Multiphysics"
+                  "Performance Reporting Tools"
+                  "Monte Carlo spintronics"
+                  "CellProfiler"
+                  "HiRep"
+                  ;; "AerOpt"
+                  "DLMUSN"
+                  "NLP Translation Toolkit"
+                  "DWF Thirring model"
+                  ;;"SA2C internal operations"
+                  ;;"FSI wrapper"
+                  ;;"Outreach"
+                  ))
 
 (defvar team-order nil)
 
