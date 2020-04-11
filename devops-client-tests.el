@@ -168,11 +168,7 @@ Use azdev-test/item! to create the items."
        (mapcar #'azdev-test/num+str-p strs))
     nil))
 
-(setq azdev-test/mock-store--team-name
-      (alist-get 'team
-                 (ht-get azdev-test/mock-store 100)))
-
-(setq azdev-test/mock-store
+(defun azdev-test/mock-store ()
       (azdev-test/create-store-with-items '((100 (11 12) "Epic")
                                             (11 (1 2) "Feature")
                                             (12 (3 4) "Feature")
@@ -181,31 +177,22 @@ Use azdev-test/item! to create the items."
                                             (3 nil "Work Item")
                                             (4 nil "Work Item"))))
 
-(ert-deftest azdev/test-fetch-formatted-strings-returns-list-of-strings ()
-  "print-formatted-strings should return list of strings for printing."
-  (should (azdev-test/list-of-id+str-p
-           (azdev/fetch-formatted-strings
-            azdev-test/mock-store
-            '((0 . 100)
-              (1 . 11)
-              (2 . 1 )
-              (2 . 2 )
-              (1 . 12)
-              (2 . 3 )
-              (2 . 4))))))
+(setq azdev-test/mock-store--team-name
+      (alist-get 'team
+                 (ht-get (azdev-test/mock-store) 100)))
 
 (ert-deftest azdev/test-find-epics-for-a-given-team ()
   "Should find one epic for the given team"
    (should (equal
             (azdev/find/epics-for-given-team
-             azdev-test/mock-store azdev-test/mock-store--team-name)
+             (azdev-test/mock-store) azdev-test/mock-store--team-name)
             '(100))))
 
 
 (ert-deftest azdev/test-get-work-items-in-order ()
-  "Walk tree should return depth first list of epics, features and tasks."
+  "Walk tree should return depth first list of epics, featuresghbn nand tasks."
    (should (equal
-            (azdev/walk-tree azdev-test/mock-store 100)
+            (azdev/walk-tree (azdev-test/mock-store) 100)
             '((0 . 100)
               (1 . 11)
               (2 . 1)
@@ -217,7 +204,7 @@ Use azdev-test/item! to create the items."
 (ert-deftest test-print-from-teams-list-of-strings ()
   "team-work-item-id+level should return list LEVEL . ID cons pairs"
   (should (equal (azdev/team-work-item-id+level
-                  azdev-test/mock-store
+                  (azdev-test/mock-store)
                   azdev-test/mock-store--team-name)
                  '((0 . 100) (1 . 11) (2 . 1) (2 . 2) (1 . 12) (2 . 3) (2 . 4)))))
 
@@ -225,9 +212,197 @@ Use azdev-test/item! to create the items."
 (ert-deftest test-print-from-teams-list-of-strings ()
   "tree-from-teams should return a list of strings."
   (should (equal (azdev/team-work-item-id+level
-                  azdev-test/mock-store
+                  (azdev-test/mock-store)
                   azdev-test/mock-store--team-name)
                  '((0 . 100) (1 . 11) (2 . 1) (2 . 2) (1 . 12) (2 . 3) (2 . 4)))))
+
+(defvar azdev-test/resp--first-work-item
+  '((id . 47729)
+   (rev . 4)
+   (fields
+    (System\.AreaPath . "Swansea Academy of Advanced Computing\\Maxwell-Nefem Code")
+    (System\.TeamProject . "Swansea Academy of Advanced Computing")
+    (System\.IterationPath . "Swansea Academy of Advanced Computing")
+    (System\.WorkItemType . "Development Task")
+    (System\.State . "Closed")
+    (System\.Reason . "Moved to state Closed")
+    (System\.AssignedTo
+     (displayName . "Mark Dawson")
+     (url . "https://spsprodweu4.vssps.visualstudio.com/A657d9976-0138-44d2-a9bc-5fab3df7945b/_apis/Identities/dbc7955d-5d00-6f50-9c18-bb1507278122")
+     (_links
+      (avatar
+       (href . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")))
+     (id . "dbc7955d-5d00-6f50-9c18-bb1507278122")
+     (uniqueName . "mark.dawson@Swansea.ac.uk")
+     (imageUrl . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")
+     (descriptor . "aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy"))
+    (System\.CreatedDate . "2019-05-03T07:12:23.373Z")
+    (System\.CreatedBy
+     (displayName . "Mark Dawson")
+     (url . "https://spsprodweu4.vssps.visualstudio.com/A657d9976-0138-44d2-a9bc-5fab3df7945b/_apis/Identities/dbc7955d-5d00-6f50-9c18-bb1507278122")
+     (_links
+      (avatar
+       (href . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")))
+     (id . "dbc7955d-5d00-6f50-9c18-bb1507278122")
+     (uniqueName . "mark.dawson@Swansea.ac.uk")
+     (imageUrl . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")
+     (descriptor . "aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy"))
+    (System\.ChangedDate . "2020-04-11T19:15:41.25Z")
+    (System\.ChangedBy
+     (displayName . "Mark Dawson")
+     (url . "https://spsprodweu4.vssps.visualstudio.com/A657d9976-0138-44d2-a9bc-5fab3df7945b/_apis/Identities/dbc7955d-5d00-6f50-9c18-bb1507278122")
+     (_links
+      (avatar
+       (href . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")))
+     (id . "dbc7955d-5d00-6f50-9c18-bb1507278122")
+     (uniqueName . "mark.dawson@Swansea.ac.uk")
+     (imageUrl . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")
+     (descriptor . "aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy"))
+    (System\.CommentCount . 0)
+    (System\.Title . "debug partitioning error - edit")
+    (System\.BoardColumn . "Closed")
+    (System\.BoardColumnDone . :json-false)
+    (Microsoft\.VSTS\.Common\.StateChangeDate . "2020-03-18T09:53:03.637Z")
+    (Microsoft\.VSTS\.Common\.ClosedDate . "2020-03-18T09:53:03.637Z")
+    (Microsoft\.VSTS\.Common\.ClosedBy
+     (displayName . "Mark Dawson")
+     (url . "https://spsprodweu4.vssps.visualstudio.com/A657d9976-0138-44d2-a9bc-5fab3df7945b/_apis/Identities/dbc7955d-5d00-6f50-9c18-bb1507278122")
+     (_links
+      (avatar
+       (href . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")))
+     (id . "dbc7955d-5d00-6f50-9c18-bb1507278122")
+     (uniqueName . "mark.dawson@Swansea.ac.uk")
+     (imageUrl . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")
+     (descriptor . "aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy"))
+    (WEF_BFBBEE48123140CD87AB35A89B1BF281_Kanban\.Column . "Closed")
+    (WEF_BFBBEE48123140CD87AB35A89B1BF281_Kanban\.Column\.Done . :json-false)
+    (WEF_F9561DF77C8E45709C75F92B2507A4E1_Kanban\.Column . "Closed")
+    (WEF_F9561DF77C8E45709C75F92B2507A4E1_Kanban\.Column\.Done . :json-false)
+    (System\.Parent . 47632))
+   (relations .
+              [((rel . "System.LinkTypes.Hierarchy-Reverse")
+                (url . "https://dev.azure.com/swansea-university/3edae9a7-678f-4dd7-9da1-7708ccc5e63a/_apis/wit/workItems/47632")
+                (attributes
+                 (isLocked . :json-false)
+                 (name . "Parent")))])
+   (url . "https://dev.azure.com/swansea-university/3edae9a7-678f-4dd7-9da1-7708ccc5e63a/_apis/wit/workItems/47729")))
+
+(defvar azdev-test/resp--second-work-item
+  '((id . 50376)
+   (rev . 2)
+   (fields
+    (System\.AreaPath . "Swansea Academy of Advanced Computing\\CFD parallel preprocessor")
+    (System\.TeamProject . "Swansea Academy of Advanced Computing")
+    (System\.IterationPath . "Swansea Academy of Advanced Computing")
+    (System\.WorkItemType . "Development Task")
+    (System\.State . "Closed")
+    (System\.Reason . "Moved to state Closed")
+    (System\.AssignedTo
+     (displayName . "Mark Dawson")
+     (url . "https://spsprodweu4.vssps.visualstudio.com/A657d9976-0138-44d2-a9bc-5fab3df7945b/_apis/Identities/dbc7955d-5d00-6f50-9c18-bb1507278122")
+     (_links
+      (avatar
+       (href . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")))
+     (id . "dbc7955d-5d00-6f50-9c18-bb1507278122")
+     (uniqueName . "mark.dawson@Swansea.ac.uk")
+     (imageUrl . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")
+     (descriptor . "aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy"))
+    (System\.CreatedDate . "2019-06-21T07:50:53.267Z")
+    (System\.CreatedBy
+     (displayName . "Mark Dawson")
+     (url . "https://spsprodweu4.vssps.visualstudio.com/A657d9976-0138-44d2-a9bc-5fab3df7945b/_apis/Identities/dbc7955d-5d00-6f50-9c18-bb1507278122")
+     (_links
+      (avatar
+       (href . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")))
+     (id . "dbc7955d-5d00-6f50-9c18-bb1507278122")
+     (uniqueName . "mark.dawson@Swansea.ac.uk")
+     (imageUrl . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")
+     (descriptor . "aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy"))
+    (System\.ChangedDate . "2019-06-21T07:50:58.75Z")
+    (System\.ChangedBy
+     (displayName . "Mark Dawson")
+     (url . "https://spsprodweu4.vssps.visualstudio.com/A657d9976-0138-44d2-a9bc-5fab3df7945b/_apis/Identities/dbc7955d-5d00-6f50-9c18-bb1507278122")
+     (_links
+      (avatar
+       (href . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")))
+     (id . "dbc7955d-5d00-6f50-9c18-bb1507278122")
+     (uniqueName . "mark.dawson@Swansea.ac.uk")
+     (imageUrl . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")
+     (descriptor . "aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy"))
+    (System\.CommentCount . 0)
+    (System\.Title . "Code review")
+    (System\.BoardColumn . "Closed")
+    (System\.BoardColumnDone . :json-false)
+    (Microsoft\.VSTS\.Scheduling\.CompletedWork . 1.5)
+    (Microsoft\.VSTS\.Common\.StateChangeDate . "2019-06-21T07:50:58.75Z")
+    (Microsoft\.VSTS\.Common\.ClosedDate . "2019-06-21T07:50:58.75Z")
+    (Microsoft\.VSTS\.Common\.ClosedBy
+     (displayName . "Mark Dawson")
+     (url . "https://spsprodweu4.vssps.visualstudio.com/A657d9976-0138-44d2-a9bc-5fab3df7945b/_apis/Identities/dbc7955d-5d00-6f50-9c18-bb1507278122")
+     (_links
+      (avatar
+       (href . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")))
+     (id . "dbc7955d-5d00-6f50-9c18-bb1507278122")
+     (uniqueName . "mark.dawson@Swansea.ac.uk")
+     (imageUrl . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")
+     (descriptor . "aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy"))
+    (WEF_BFBBEE48123140CD87AB35A89B1BF281_Kanban\.Column . "Closed")
+    (WEF_BFBBEE48123140CD87AB35A89B1BF281_Kanban\.Column\.Done . :json-false)
+    (WEF_8256FB469D6149B6830CC9209F5E9DF6_Kanban\.Column . "Closed")
+    (WEF_8256FB469D6149B6830CC9209F5E9DF6_Kanban\.Column\.Done . :json-false)
+    (System\.Parent . 46386))
+   (relations .
+              [((rel . "System.LinkTypes.Hierarchy-Reverse")
+                (url . "https://dev.azure.com/swansea-university/3edae9a7-678f-4dd7-9da1-7708ccc5e63a/_apis/wit/workItems/46386")
+                (attributes
+                 (isLocked . :json-false)
+                 (name . "Parent")))])
+   (url . "https://dev.azure.com/swansea-university/3edae9a7-678f-4dd7-9da1-7708ccc5e63a/_apis/wit/workItems/50376")))
+
+(defvar azdev-test/resp-parsed--first-work-item
+  '((id . 47729)
+   (title . "debug partitioning error - edit")
+   (children)
+   (parent 47632)
+   (relations-raw .
+                  [((rel . "System.LinkTypes.Hierarchy-Reverse")
+                    (url . "https://dev.azure.com/swansea-university/3edae9a7-678f-4dd7-9da1-7708ccc5e63a/_apis/wit/workItems/47632")
+                    (attributes
+                     (isLocked . :json-false)
+                     (name . "Parent")))])
+   (area-path . "Swansea Academy of Advanced Computing\\Maxwell-Nefem Code")
+   (team . "Maxwell-Nefem Code")
+   (project . "Swansea Academy of Advanced Computing")
+   (iteration-path . "Swansea Academy of Advanced Computing")
+   (work-item-type . "Development Task")
+   (state . "Closed")
+   (reason . "Moved to state Closed")
+   (assigned-to . "mark.dawson@Swansea.ac.uk")
+   (created-date 23755 59863)
+   (created-by . "mark.dawson@Swansea.ac.uk")
+   (changed-date 24210 5981)
+   (changed-by . "mark.dawson@Swansea.ac.uk")
+   (comment-count . 0)
+   (board-column . "Closed")
+   (board-columnDone . :json-false)
+   (length))
+  "Expected value of work item after having been parsed")
+
+(defvar azdev-test/resp--values
+  (vector azdev-test/resp--first-work-item
+          azdev-test/resp--second-work-item))
+
+(defvar azdev-test/resp
+  `((count . 2)
+    (value . ,azdev-test/resp--values))
+  "Result of get request fetching two items.")
+
+(ert-deftest azdev-test/test-parse-individual-response-work-item ()
+  "Check that parsed work item is equal to expected value."
+  (should
+   (equal
+    (azdev/work-item-parse azdev-test/resp--first-work-item)
+    azdev-test/resp-parsed--first-work-item)))
 
 (provide 'devops-client-tests)
 ;;; devops-client-tests.el ends here

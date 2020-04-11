@@ -147,26 +147,6 @@ of urls to fetch that list of IDs"
     (not (ht-contains? store key)))
   ids))
 
-(defun id->identity (key fields)
-  "
-  Returns a standardised string describing identity based KEY of fields
-returned by DevOps for a given work item.
-
-identities returned by DevOps are of the form:
-
-(displayName . \"My Name\")
-(url . \"...\")
-(_links (avatar
-          (href . \"...\")))
-id . \"...)
-(uniqueName . \"unique@web.com\")
-(imageUrl . \"...\")
-(descriptor . \"...\"))
-"
-  (let* ((identity-alist (alist-get key fields))
-        (uniqueName (alist-get 'uniqueName identity-alist)))
-    uniqueName))
-
 (defun azdev/get-relation-matching-attributes-name (relations name)
   "Get list of IDs from RELATIONS where relation type matches NAME.
 
@@ -180,35 +160,57 @@ NAME is either \"CHILD\" or \"PARENT\" "
                     ))
                 relations)))
 
-(defun azdev/work-item-parse (work-item)
-" Transform the downloaded json into a work item"
-(let* ((fields (alist-get 'fields work-item))
-       (relations (alist-get 'relations work-item))
-       (area-path (alist-get 'System\.AreaPath fields))) ;; the work item is an alist
-    `((id . ,(alist-get 'id work-item))
-      (title . ,(alist-get 'System\.Title fields))
-      (children . ,(azdev/get-relation-matching-attributes-name relations "Child"))
-      (parent . ,(azdev/get-relation-matching-attributes-name relations "Parent"))
-      (relations-raw . ,relations)
-      (area-path . ,area-path)
-      (team . ,(car
-               (last
-                (s-split "\\\\" area-path))))
-      (project . ,(alist-get 'System\.TeamProject fields))
-      (iteration-path . ,(alist-get 'System\.IterationPath fields))
-      (work-item-type . ,(alist-get 'System\.WorkItemType fields))
-      (state . ,(alist-get 'System\.State fields))
-      (reason . ,(alist-get 'System\.Reason fields))
-      (assigned-to . ,(id->identity 'System\.AssignedTo fields))
-      (created-date . ,(date-to-time (alist-get 'System\.CreatedDate fields)))
-      (created-by . ,(id->identity 'System\.CreatedBy fields))
-      (changed-date . ,(date-to-time (alist-get 'System\.ChangedDate fields)))
-      (changed-by . ,(id->identity 'System\.ChangedBy fields))
-      (comment-count . ,(alist-get 'System\.CommentCount fields))
-      (board-column . ,(alist-get 'System\.BoardColumn fields))
-      (board-columnDone . ,(alist-get 'System\.BoardColumnDone fields))
-      (length . ,(alist-get 'Custom\.Length fields))
-      (parent . ,(alist-get 'System\.Parent fields)))))
+(defvar azdev/response-field-mappings
+  '((id (id))
+    (title (fields System\.Title))
+    (children (relations)
+              (azdev/get-relation-matching-attributes-name "Child"))
+    (parent (relations)
+            (azdev/get-relation-matching-attributes-name "Parent"))
+    (relations-raw (relations))
+    (area-path (fields System\.AreaPath))
+    (team (fields System\.AreaPath) (azdev/area-path->team))
+    (project (fields System\.TeamProject))
+    (iteration-path (fields System\.IterationPath))
+    (work-item-type (fields System\.WorkItemType))
+    (state (fields System\.State))
+    (reason (fields System\.Reason))
+    (assigned-to (fields System\.AssignedTo uniqueName))
+    (created-date (fields System\.CreatedDate) (date-to-time))
+    (created-by (fields System\.CreatedBy uniqueName))
+    (changed-date (fields System\.ChangedDate) (date-to-time) )
+    (changed-by (fields System\.ChangedBy uniqueName))
+    (comment-count (fields System\.CommentCount))
+    (board-column (fields System\.BoardColumn))
+    (board-columnDone (fields System\.BoardColumnDone))
+    (length (fields Custom\.Length)))
+  "Mappings from local field names to the field names path in the recieved JSON.
+An additional function can be provided, which is used to map remote value to local value.
+A list can be provided instead of the value mapping function, in which case the first entry of
+the list is the function to call, and the remaining entries are the additional arguments to pass
+(after the first).")
+
+(defun azdev/area-path->team (area-path)
+  "Convert an AREA-PATH into a team name"
+  (car
+   (last
+    (s-split "\\\\" area-path))))
+
+(defun azdev/assoc-recursive (keys alist)
+  "Recursively find KEYs in ALIST."
+  (while keys
+    (setq alist (cdr (assoc (pop keys) alist))))
+  alist)
+
+(defun azdev/work-item-parse (work-item-response)
+  "Transform the downloaded json into a work item"
+  (mapcar (-lambda ((dest source-path func))
+            (let* ((resp-value (azdev/assoc-recursive source-path work-item-response))
+                   (value (if (and  func (listp func))
+                              (apply (car func) resp-value (cdr func))
+                             resp-value)))
+              (cons dest value)))
+          azdev/response-field-mappings))
 
 (defun azdev/work-item-->store (store item)
   "Puts the work ITEM in the hash STORE by id, and return id."
