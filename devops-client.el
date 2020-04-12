@@ -64,9 +64,10 @@
 (defun azdev/read-token ()
   (setq azdev/auth-token (azdev/load-token)))
 
-(defun default-headers ()
+(defun default-headers (content-type)
+  "Return default headers, for a given CONTENT-TYPE."
   `(("Authorization" . ,(concat "Basic " azdev/auth-token))
-    ("Content-Type" . "application/json")))
+    ("Content-Type" . ,content-type)))
 
 (azdev/read-token)
 
@@ -90,11 +91,17 @@ Otherwise return the RESPONSE, unchanged."
 (defun azdev/dispatch-post-request (uri data)
   (azdev/--dispatch-request uri "POST" data))
 
+(defun azdev/dispatch-patch-request (uri data)
+  (azdev/--dispatch-request uri "PATCH" data))
+
 (defun azdev/--dispatch-request (uri method data)
   "Dispatch request to endpoint URI (with json parsing) and METHOD.
 Return parsed json data as an alist.
 METHOD should be a string such as \"GET\" or \"POST\""
-  (let ((url (concat azdev/base-url uri)))
+  (let* ((url (concat azdev/base-url uri))
+         (content-type (if (string= method "PATCH")
+                           "application/json-patch+json"
+                         "application/json")))
     (message "Calling: [%S] %s" method url)
     (request-response-data
     (if data
@@ -102,14 +109,14 @@ METHOD should be a string such as \"GET\" or \"POST\""
           url
           :type method
           :parser 'json-read
-          :headers (default-headers)
+          :headers (default-headers content-type)
           :sync t
-          :data data)
+          :data (json-encode data))
       (request
         url
         :type method
         :parser 'json-read
-        :headers (default-headers)
+        :headers (default-headers content-type)
         :sync t)))))
 
 (defun azdev/get-request (uri)
@@ -121,7 +128,7 @@ METHOD should be a string such as \"GET\" or \"POST\""
   ;; wiql api used is documented at: https://docs.microsoft.com/en-us/rest/api/azure/devops/wit/wiql/query%20by%20wiql?view=azure-devops-rest-5.1
   (let ((wiql-uri "/wit/wiql?api-version=5.1"))
     (message "Wiql: %s" wiql)
-    (azdev/dispatch-post-request wiql-uri (json-encode `(("query" . ,wiql))))))
+    (azdev/dispatch-post-request wiql-uri `(("query" . ,wiql)))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -137,7 +144,7 @@ of urls to fetch that list of IDs"
             (concat
             "/wit/workItems?ids="
             (mapconcat 'number-to-string ids-chunk ",")
-            "&$expand=Relations&errorPolicy=Omit"))
+            "&$expand=All&errorPolicy=Omit"))
           chunked-list))
 
 (defun azdev/filter-ids-not-in-store (store ids)
@@ -160,6 +167,10 @@ NAME is either \"CHILD\" or \"PARENT\" "
                     ))
                 relations)))
 
+(defun azdev/identity-to-name (identity)
+  "Given a devops identity, extract the name (displayName)"
+  (alist-get 'displayName identity))
+
 (defvar azdev/response-field-mappings
   '((id (id))
     (title (fields System\.Title))
@@ -175,15 +186,16 @@ NAME is either \"CHILD\" or \"PARENT\" "
     (work-item-type (fields System\.WorkItemType))
     (state (fields System\.State))
     (reason (fields System\.Reason))
-    (assigned-to (fields System\.AssignedTo uniqueName))
+    (assigned-to (fields System\.AssignedTo) (azdev/identity-to-name))
     (created-date (fields System\.CreatedDate) (date-to-time))
-    (created-by (fields System\.CreatedBy uniqueName))
+    (created-by (fields System\.CreatedBy) (azdev/identity-to-name))
     (changed-date (fields System\.ChangedDate) (date-to-time) )
-    (changed-by (fields System\.ChangedBy uniqueName))
+    (changed-by (fields System\.ChangedBy) (azdev/identity-to-name))
     (comment-count (fields System\.CommentCount))
     (board-column (fields System\.BoardColumn))
     (board-columnDone (fields System\.BoardColumnDone))
-    (length (fields Custom\.Length)))
+    (length (fields Custom\.Length))
+    (completed-work (fields Microsoft\.VSTS\.Scheduling\.CompletedWork)))
   "Mappings from local field names to the field names path in the recieved JSON.
 An additional function can be provided, which is used to map remote value to local value.
 A list can be provided instead of the value mapping function, in which case the first entry of
@@ -211,6 +223,7 @@ the list is the function to call, and the remaining entries are the additional a
                              resp-value)))
               (cons dest value)))
           azdev/response-field-mappings))
+
 
 (defun azdev/work-item-->store (store item)
   "Puts the work ITEM in the hash STORE by id, and return id."
@@ -514,12 +527,11 @@ PRED is a function which takes an item."
          (assigned-to (s-pad-right
                        20
                        " "
-                       (s-downcase
-                        (car
+                       (car
                          (s-split "@"
                                   (if-let ((name (alist-get 'assigned-to data)))
                                       name
-                                    "---"))))))
+                                    "---")))))
          (pad-len (- 70 (length prefix))))
     (concat
      (azdev/face wi-type
@@ -585,6 +597,16 @@ Printer is a function such as #'format or #'message"
   (ht-set! azdev/wi-store (alist-get 'id item) item))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Remote URLs
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun azdev/construct-work-item-url (item-id)
+  "Return the URL of a work item given the ITEM-ID."
+  (concat
+   "https://dev.azure.com/swansea-university/Swansea Academy of Advanced Computing/_workitems/edit/"
+   (number-to-string item-id)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; High-level functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -643,17 +665,93 @@ Printer is a function such as #'format or #'message"
           #'azdev/ewoc-printer)))
     (azdevops/add-team-items-to-ewoc ewoc store teams)
     ewoc))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Interacting with ewoc
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Interactive funcations
+;;; Finding ewoc node and id
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(setq team-order (vector
+(defun azdev/ewoc-current-id+node (ewoc)
+  "Return a cons pair ( id . node ) for the ewoc node under point."
+  (let* ((node (ewoc-locate ewoc))
+         (id (cdr (ewoc-data node))))
+    (cons id node )))
+
+(defun azdev/ewoc-current-id (ewoc)
+  (car (azdev/ewoc-current-id+node ewoc)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Updating entries
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun azdev/apply-updates-current-ewoc-item (ewoc store update-item-f)
+  "Update the current item from EWOC in STORE and remotely using \
+function UPDATE-ITEM-F.
+UPDATE-ITEM-F take the item data, and return a list of changes."
+  (-let* (((item-id . node) (azdev/ewoc-current-id+node ewoc))
+          (changes (funcall update-item-f (ht-get store item-id))))
+    (message (pp changes))
+    (when changes
+      (ht-set! store item-id
+               (azdev/upload-changes-to-work-item item-id changes))
+      (ewoc-invalidate ewoc node))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Update server
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun azdev/source-path->devops-path (source-path)
+  "Convert a source path specified as a SOURCE-PATH such as \
+\(field1 field2 field3 ...\) to a string field1/field2/field3/.."
+  (concat "/"
+          (s-join "/"
+                  (mapcar
+                   #'symbol-name
+                   source-path))))
+
+(defun azdev/local-key->devops-path (local-key)
+  (azdev/source-path->devops-path
+   (car
+    (alist-get local-key azdev/response-field-mappings))))
+
+(defun azdev/spec-to-update-remote (field value)
+  "Returns DevOps API specification of a particular update.
+Field is either a symbol specifying the local key  of the
+field (e.g. title), or a string specifying the remote key
+(e.g. fields/System.AssignedTo)"
+  `((op . "replace")
+    (path . ,(if (stringp field)
+                 field
+               (azdev/local-key->devops-path field)))
+    (value . ,value)))
+
+(defun azdev/multi-specs-to-update-remote (changes)
+  "Returns a vector of multiple specs from list of CHANGES.
+CHANGES is of the form:
+  '((field . new-value)
+    (another-field . new-value))
+where fields are specified with either their local representation as a symbol
+(e.g. title) or a full remote path as a string (e.g. \"fields/System.AssignedTo \" )."
+  (apply #'vector
+         (mapcar
+          (-lambda ((field . value))
+            (azdev/spec-to-update-remote field value))
+          changes)))
+
+(defun azdev/upload-changes-to-work-item (work-item-id changes)
+  "Apply CHANGES to work item with WORK-ITEM-ID.
+Return the new parsed work item.
+CHANGES is as specified in azdev/multi-spacs-to-update-remote"
+  (azdev/work-item-parse
+   (azdev/dispatch-patch-request (concat
+                                  "/wit/workitems/"
+                                  (number-to-string work-item-id)
+                                  "?api-version=5.1&$expand=All&bypassRules=true")
+                                 (azdev/multi-specs-to-update-remote changes))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Interactive functions
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defvar team-order (vector
                   ;;"Computational Psychology Masters"
                   "CFD parallel preprocessor"
                   "SOMBRERO"
@@ -688,8 +786,6 @@ Printer is a function such as #'format or #'message"
                   ;;"Outreach"
                   ))
 
-(defvar team-order nil)
-
 (defun devops-draw ()
   (interactive)
 
@@ -715,6 +811,89 @@ Printer is a function such as #'format or #'message"
 
   (devops-draw))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Mapping behaviour to updates
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; For now just hardcode the behaviour.
+; Later this should be a major mode.
+
+(defun azdev/update-item/set-state-new (item)
+  '((state . "New")))
+
+(defun azdev/update-item/set-state-closed (item)
+  '((state . "Closed")))
+
+(defun azdev/update-item/set-state-active (item)
+  '((state . "Active")))
+
+(defun azdev/update-item/set-title (item)
+  `((title . ,(read-from-minibuffer "Title: "
+                                    (alist-get 'title item)))))
+
+(defun azdev/set-current-item-state--new ()
+  (interactive)
+  (azdev/apply-updates-current-ewoc-item
+   azdev/wi-ewoc
+   azdev/wi-store
+   #'azdev/update-item/set-state-new))
+
+(defun azdev/set-current-item-state--closed ()
+  (interactive)
+  (azdev/apply-updates-current-ewoc-item
+   azdev/wi-ewoc
+   azdev/wi-store
+   #'azdev/update-item/set-state-closed))
+
+
+(defun azdev/set-current-item-state--active ()
+  (interactive)
+  (azdev/apply-updates-current-ewoc-item
+   azdev/wi-ewoc
+   azdev/wi-store
+   #'azdev/update-item/set-state-active))
+
+(defun azdev/set-current-item-title ()
+  (interactive)
+  (azdev/apply-updates-current-ewoc-item
+   azdev/wi-ewoc
+   azdev/wi-store
+   #'azdev/update-item/set-title))
+
+(defun azdev/visit-current-item-www ()
+  (interactive)
+  (let* ((item-id (azdev/ewoc-current-id azdev/wi-ewoc))
+         (url (azdev/construct-work-item-url item-id)))
+    (message (concat "Visiting: " url))
+    (browse-url url)))
+
+(defun azdev/fetch-current-id ()
+  (interactive)
+  (message (number-to-string (azdev/ewoc-current-id azdev/wi-ewoc))))
+
+(map! :leader
+      :desc "Set active state"
+      :n "da" #'azdev/set-current-item-state--active)
+
+(map! :leader
+      :desc "Set new state"
+      :n "dn" #'azdev/set-current-item-state--new)
+
+(map! :leader
+      :desc "Set closed state"
+      :n "dc" #'azdev/set-current-item-state--closed)
+
+(map! :leader
+      :desc "Set title"
+      :n "dt" #'azdev/set-current-item-title)
+
+(map! :leader
+      :desc "Print id"
+      :n "di" #'azdev/fetch-current-id)
+
+(map! :leader
+      :desc "Visit"
+      :n "dv" #'azdev/visit-current-item-www)
 
 (defun add-doom-mapping ()
   "Add a keybinding in doom emacs for devops drawing"

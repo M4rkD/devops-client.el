@@ -216,6 +216,57 @@ Use azdev-test/item! to create the items."
                   azdev-test/mock-store--team-name)
                  '((0 . 100) (1 . 11) (2 . 1) (2 . 2) (1 . 12) (2 . 3) (2 . 4)))))
 
+(azdev/update-item! (azdev-test/mock-store)
+                 100
+                 'name
+                 "my name")
+
+(azdev/update-item! (azdev-test/mock-store)
+                 100
+                 'another-name
+                 "another name")
+
+(ert-deftest azdev-test/double-update-store-items ()
+    (let ((store (azdev-test/mock-store)))
+      (azdev/update-item! store
+                         100
+                         'name
+                         "my name")
+      (azdev/update-item! store
+                         100
+                         'name
+                         "name again")
+      (let* ((data (ht-get store 100))
+             (name (alist-get 'name data))
+             (dirty (alist-get 'dirty data)))
+        (should (and
+                 (equal name "name again")
+                 (equal dirty '(name name)))))))
+
+(ert-deftest azdev-test/update-multiple-store-items ()
+    (let ((store (azdev-test/mock-store)))
+      (azdev/update-item! store
+                         100
+                         'name
+                         "my name")
+      (azdev/update-item! store
+                         100
+                         'another-name
+                         "another name")
+      (let* ((data (ht-get store 100))
+             (name (alist-get 'name data))
+             (another-name (alist-get 'another-name data))
+             (dirty (alist-get 'dirty data)))
+        (should (and
+                 (equal name "my name")
+                 (equal another-name "another name")
+                 (equal dirty '(name another-name)))))))
+
+;; Fetch response from server
+;; (setq azdev/resp (azdev/get-request
+;;                   (car
+;;                    (azdev/fetch-work-item-data-urls '(47729 50376)))))
+
 (defvar azdev-test/resp--first-work-item
   '((id . 47729)
    (rev . 4)
@@ -287,115 +338,36 @@ Use azdev-test/item! to create the items."
                  (name . "Parent")))])
    (url . "https://dev.azure.com/swansea-university/3edae9a7-678f-4dd7-9da1-7708ccc5e63a/_apis/wit/workItems/47729")))
 
-(defvar azdev-test/resp--second-work-item
-  '((id . 50376)
-   (rev . 2)
-   (fields
-    (System\.AreaPath . "Swansea Academy of Advanced Computing\\CFD parallel preprocessor")
-    (System\.TeamProject . "Swansea Academy of Advanced Computing")
-    (System\.IterationPath . "Swansea Academy of Advanced Computing")
-    (System\.WorkItemType . "Development Task")
-    (System\.State . "Closed")
-    (System\.Reason . "Moved to state Closed")
-    (System\.AssignedTo
-     (displayName . "Mark Dawson")
-     (url . "https://spsprodweu4.vssps.visualstudio.com/A657d9976-0138-44d2-a9bc-5fab3df7945b/_apis/Identities/dbc7955d-5d00-6f50-9c18-bb1507278122")
-     (_links
-      (avatar
-       (href . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")))
-     (id . "dbc7955d-5d00-6f50-9c18-bb1507278122")
-     (uniqueName . "mark.dawson@Swansea.ac.uk")
-     (imageUrl . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")
-     (descriptor . "aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy"))
-    (System\.CreatedDate . "2019-06-21T07:50:53.267Z")
-    (System\.CreatedBy
-     (displayName . "Mark Dawson")
-     (url . "https://spsprodweu4.vssps.visualstudio.com/A657d9976-0138-44d2-a9bc-5fab3df7945b/_apis/Identities/dbc7955d-5d00-6f50-9c18-bb1507278122")
-     (_links
-      (avatar
-       (href . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")))
-     (id . "dbc7955d-5d00-6f50-9c18-bb1507278122")
-     (uniqueName . "mark.dawson@Swansea.ac.uk")
-     (imageUrl . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")
-     (descriptor . "aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy"))
-    (System\.ChangedDate . "2019-06-21T07:50:58.75Z")
-    (System\.ChangedBy
-     (displayName . "Mark Dawson")
-     (url . "https://spsprodweu4.vssps.visualstudio.com/A657d9976-0138-44d2-a9bc-5fab3df7945b/_apis/Identities/dbc7955d-5d00-6f50-9c18-bb1507278122")
-     (_links
-      (avatar
-       (href . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")))
-     (id . "dbc7955d-5d00-6f50-9c18-bb1507278122")
-     (uniqueName . "mark.dawson@Swansea.ac.uk")
-     (imageUrl . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")
-     (descriptor . "aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy"))
-    (System\.CommentCount . 0)
-    (System\.Title . "Code review")
-    (System\.BoardColumn . "Closed")
-    (System\.BoardColumnDone . :json-false)
-    (Microsoft\.VSTS\.Scheduling\.CompletedWork . 1.5)
-    (Microsoft\.VSTS\.Common\.StateChangeDate . "2019-06-21T07:50:58.75Z")
-    (Microsoft\.VSTS\.Common\.ClosedDate . "2019-06-21T07:50:58.75Z")
-    (Microsoft\.VSTS\.Common\.ClosedBy
-     (displayName . "Mark Dawson")
-     (url . "https://spsprodweu4.vssps.visualstudio.com/A657d9976-0138-44d2-a9bc-5fab3df7945b/_apis/Identities/dbc7955d-5d00-6f50-9c18-bb1507278122")
-     (_links
-      (avatar
-       (href . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")))
-     (id . "dbc7955d-5d00-6f50-9c18-bb1507278122")
-     (uniqueName . "mark.dawson@Swansea.ac.uk")
-     (imageUrl . "https://dev.azure.com/swansea-university/_apis/GraphProfile/MemberAvatars/aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy")
-     (descriptor . "aad.ZGJjNzk1NWQtNWQwMC03ZjUwLTljMTgtYmIxNTA3Mjc4MTIy"))
-    (WEF_BFBBEE48123140CD87AB35A89B1BF281_Kanban\.Column . "Closed")
-    (WEF_BFBBEE48123140CD87AB35A89B1BF281_Kanban\.Column\.Done . :json-false)
-    (WEF_8256FB469D6149B6830CC9209F5E9DF6_Kanban\.Column . "Closed")
-    (WEF_8256FB469D6149B6830CC9209F5E9DF6_Kanban\.Column\.Done . :json-false)
-    (System\.Parent . 46386))
-   (relations .
-              [((rel . "System.LinkTypes.Hierarchy-Reverse")
-                (url . "https://dev.azure.com/swansea-university/3edae9a7-678f-4dd7-9da1-7708ccc5e63a/_apis/wit/workItems/46386")
-                (attributes
-                 (isLocked . :json-false)
-                 (name . "Parent")))])
-   (url . "https://dev.azure.com/swansea-university/3edae9a7-678f-4dd7-9da1-7708ccc5e63a/_apis/wit/workItems/50376")))
-
 (defvar azdev-test/resp-parsed--first-work-item
   '((id . 47729)
-   (title . "debug partitioning error - edit")
-   (children)
-   (parent 47632)
-   (relations-raw .
-                  [((rel . "System.LinkTypes.Hierarchy-Reverse")
-                    (url . "https://dev.azure.com/swansea-university/3edae9a7-678f-4dd7-9da1-7708ccc5e63a/_apis/wit/workItems/47632")
-                    (attributes
-                     (isLocked . :json-false)
-                     (name . "Parent")))])
-   (area-path . "Swansea Academy of Advanced Computing\\Maxwell-Nefem Code")
-   (team . "Maxwell-Nefem Code")
-   (project . "Swansea Academy of Advanced Computing")
-   (iteration-path . "Swansea Academy of Advanced Computing")
-   (work-item-type . "Development Task")
-   (state . "Closed")
-   (reason . "Moved to state Closed")
-   (assigned-to . "mark.dawson@Swansea.ac.uk")
-   (created-date 23755 59863)
-   (created-by . "mark.dawson@Swansea.ac.uk")
-   (changed-date 24210 5981)
-   (changed-by . "mark.dawson@Swansea.ac.uk")
-   (comment-count . 0)
-   (board-column . "Closed")
-   (board-columnDone . :json-false)
-   (length))
+    (title . "debug partitioning error - edit")
+    (children)
+    (parent 47632)
+    (relations-raw .
+                   [((rel . "System.LinkTypes.Hierarchy-Reverse")
+                     (url . "https://dev.azure.com/swansea-university/3edae9a7-678f-4dd7-9da1-7708ccc5e63a/_apis/wit/workItems/47632")
+                     (attributes
+                      (isLocked . :json-false)
+                      (name . "Parent")))])
+    (area-path . "Swansea Academy of Advanced Computing\\Maxwell-Nefem Code")
+    (team . "Maxwell-Nefem Code")
+    (project . "Swansea Academy of Advanced Computing")
+    (iteration-path . "Swansea Academy of Advanced Computing")
+    (work-item-type . "Development Task")
+    (state . "Closed")
+    (reason . "Moved to state Closed")
+    (assigned-to . "Mark Dawson")
+    (created-date 23755 59863)
+    (created-by . "Mark Dawson")
+    (changed-date 24210 5981)
+    (changed-by . "Mark Dawson")
+    (comment-count . 0)
+    (board-column . "Closed")
+    (board-columnDone . :json-false)
+    (length)
+    (completed-work))
   "Expected value of work item after having been parsed")
 
-(defvar azdev-test/resp--values
-  (vector azdev-test/resp--first-work-item
-          azdev-test/resp--second-work-item))
-
-(defvar azdev-test/resp
-  `((count . 2)
-    (value . ,azdev-test/resp--values))
-  "Result of get request fetching two items.")
 
 (ert-deftest azdev-test/test-parse-individual-response-work-item ()
   "Check that parsed work item is equal to expected value."
@@ -403,6 +375,110 @@ Use azdev-test/item! to create the items."
    (equal
     (azdev/work-item-parse azdev-test/resp--first-work-item)
     azdev-test/resp-parsed--first-work-item)))
+
+(ert-deftest azdev-test/test-convert-source-path ()
+  (should (string=
+           (azdev/source-path->devops-path '(fields System\.assignedTo uniqueName))
+           "/fields/System.assignedTo/uniqueName")))
+
+(ert-deftest azdev-test/test-convert-source-path ()
+  (should (string=
+           (azdev/local-key->devops-path 'title)
+           "/fields/System.Title")))
+
+(ert-deftest azdev-test/spec-to-update-remote ()
+  "spec-to-update-remote should return the space that DevOps requires"
+  (should (equal
+           (azdev/spec-to-update-remote 'title "new title")
+           '((op . "replace")
+             (path . "/fields/System.Title")
+             (value . "new title")))))
+
+(ert-deftest azdev-test/spec-to-update-remote--explicit-path ()
+  "spec-to-update-remote should return the spac that DevOps requires,
+with an explicit path when provided as a string."
+  (should (equal
+           (azdev/spec-to-update-remote "/explicit/path" "new title")
+           '((op . "replace")
+             (path . "/explicit/path")
+             (value . "new title")))))
+
+(ert-deftest azdev-test/multi-specs-to-update-remote ()
+  "Should combine return values of spec-to-update-remote"
+  (should (equal
+           (azdev/multi-specs-to-update-remote '((title . "Some Title")
+                                                 (work-item-type . "Epic")))
+           '[((op . "replace")
+              (path . "/fields/System.Title")
+              (value . "Some Title"))
+             ((op . "replace")
+              (path . "/fields/System.WorkItemType")
+              (value . "Epic"))])))
+
+(defun azdev/extract-dirty-and-values (work-item)
+  (mapcar
+   (lambda (key)
+     (cons key
+           (alist-get key work-item)))
+   (car (alist-get 'dirty work-item))))
+
+(ert-deftest azdev-test/extract-dirty-and-values ()
+  "Extract dirty values, but not non-dirty"
+  (should (equal
+           (azdev/extract-dirty-and-values
+            '((a "a")
+              (b "b")
+              (c "c")
+              (d "d")
+              (e "e")
+              (dirty (a b c))))
+           '((a "a")
+             (b "b")
+             (c "c")))))
+
+(ert-deftest azdev-test/extract-dirty-and-values--dups ()
+  "Ignore duplicate values."
+  (should (equal
+           (azdev/extract-dirty-and-values
+            '((a "a")
+              (b "b")
+              (a "not me!")
+              (c "c")
+              (b "not me either!")
+              (d "d")
+              (e "e")
+              (dirty (a b c))))
+           '((a "a")
+             (b "b")
+             (c "c")))))
+
+(ert-deftest azdev-test/extract-dirty-and-values--dups-dirty ()
+  "Ignore duplicate values."
+  (should (equal
+           (azdev/extract-dirty-and-values
+            '((a "a")
+              (b "b")
+              (c "c")
+              (d "d")
+              (e "e")
+              (dirty (a b c b))))
+           '((a "a")
+             (b "b")
+             (c "c")
+             (b "b")))))
+
+(ert-deftest azdev-test/extract-dirty-and-values--missing ()
+  "No value when missing - use this to signify deletion."
+  (should (equal
+           (azdev/extract-dirty-and-values
+            '((a "a")
+              (b "b")
+              (d "d")
+              (e "e")
+              (dirty (a b c))))
+           '((a "a")
+             (b "b")
+             (c)))))
 
 (provide 'devops-client-tests)
 ;;; devops-client-tests.el ends here
