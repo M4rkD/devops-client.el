@@ -128,6 +128,7 @@ Use azdev-test/item! to create the items."
     store))
 
 (cl-defun azdev-test/item! (item-id &optional (children nil) (work-item-type "Work Item"))
+  "Crate a fake work item for testing"
   (let ((id-str (number-to-string item-id)))
     `((id . ,item-id)
       (title . ,(concat "Title#" id-str))
@@ -215,52 +216,6 @@ Use azdev-test/item! to create the items."
                   (azdev-test/mock-store)
                   azdev-test/mock-store--team-name)
                  '((0 . 100) (1 . 11) (2 . 1) (2 . 2) (1 . 12) (2 . 3) (2 . 4)))))
-
-(azdev/update-item! (azdev-test/mock-store)
-                 100
-                 'name
-                 "my name")
-
-(azdev/update-item! (azdev-test/mock-store)
-                 100
-                 'another-name
-                 "another name")
-
-(ert-deftest azdev-test/double-update-store-items ()
-    (let ((store (azdev-test/mock-store)))
-      (azdev/update-item! store
-                         100
-                         'name
-                         "my name")
-      (azdev/update-item! store
-                         100
-                         'name
-                         "name again")
-      (let* ((data (ht-get store 100))
-             (name (alist-get 'name data))
-             (dirty (alist-get 'dirty data)))
-        (should (and
-                 (equal name "name again")
-                 (equal dirty '(name name)))))))
-
-(ert-deftest azdev-test/update-multiple-store-items ()
-    (let ((store (azdev-test/mock-store)))
-      (azdev/update-item! store
-                         100
-                         'name
-                         "my name")
-      (azdev/update-item! store
-                         100
-                         'another-name
-                         "another name")
-      (let* ((data (ht-get store 100))
-             (name (alist-get 'name data))
-             (another-name (alist-get 'another-name data))
-             (dirty (alist-get 'dirty data)))
-        (should (and
-                 (equal name "my name")
-                 (equal another-name "another name")
-                 (equal dirty '(name another-name)))))))
 
 ;; Fetch response from server
 ;; (setq azdev/resp (azdev/get-request
@@ -389,8 +344,8 @@ Use azdev-test/item! to create the items."
 (ert-deftest azdev-test/spec-to-update-remote ()
   "spec-to-update-remote should return the space that DevOps requires"
   (should (equal
-           (azdev/spec-to-update-remote 'title "new title")
-           '((op . "replace")
+           (azdev/spec-to-update-remote 'title "new title" "operation")
+           '((op . "operation")
              (path . "/fields/System.Title")
              (value . "new title")))))
 
@@ -398,16 +353,16 @@ Use azdev-test/item! to create the items."
   "spec-to-update-remote should return the spac that DevOps requires,
 with an explicit path when provided as a string."
   (should (equal
-           (azdev/spec-to-update-remote "/explicit/path" "new title")
-           '((op . "replace")
+           (azdev/spec-to-update-remote "/explicit/path" "new title" "some-op")
+           '((op . "some-op")
              (path . "/explicit/path")
              (value . "new title")))))
 
 (ert-deftest azdev-test/multi-specs-to-update-remote ()
   "Should combine return values of spec-to-update-remote"
   (should (equal
-           (azdev/multi-specs-to-update-remote '((title . "Some Title")
-                                                 (work-item-type . "Epic")))
+           (azdev/multi-specs-to-update-remote '((title "Some Title")
+                                                 (work-item-type "Epic")))
            '[((op . "replace")
               (path . "/fields/System.Title")
               (value . "Some Title"))

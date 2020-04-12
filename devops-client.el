@@ -712,12 +712,14 @@ UPDATE-ITEM-F take the item data, and return a list of changes."
    (car
     (alist-get local-key azdev/response-field-mappings))))
 
-(defun azdev/spec-to-update-remote (field value)
-  "Returns DevOps API specification of a particular update.
+(defun azdev/spec-to-update-remote (field value operation)
+  "Return DevOps API specification of an update to FIELD to VALUE with OPERATION.
 Field is either a symbol specifying the local key  of the
 field (e.g. title), or a string specifying the remote key
-(e.g. fields/System.AssignedTo)"
-  `((op . "replace")
+(e.g. fields/System.AssignedTo).
+OPERATION is one of \"replace\", \"delete\" etc.
+"
+  `((op . ,operation)
     (path . ,(if (stringp field)
                  field
                (azdev/local-key->devops-path field)))
@@ -732,8 +734,8 @@ where fields are specified with either their local representation as a symbol
 (e.g. title) or a full remote path as a string (e.g. \"fields/System.AssignedTo \" )."
   (apply #'vector
          (mapcar
-          (-lambda ((field . value))
-            (azdev/spec-to-update-remote field value))
+          (-lambda ((field value operation))
+            (azdev/spec-to-update-remote field value (or operation "replace")))
           changes)))
 
 (defun azdev/upload-changes-to-work-item (work-item-id changes)
@@ -819,16 +821,16 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
 ; Later this should be a major mode.
 
 (defun azdev/update-item/set-state-new (item)
-  '((state . "New")))
+  '((state "New")))
 
 (defun azdev/update-item/set-state-closed (item)
-  '((state . "Closed")))
+  '((state "Closed")))
 
 (defun azdev/update-item/set-state-active (item)
-  '((state . "Active")))
+  '((state "Active")))
 
 (defun azdev/update-item/set-title (item)
-  `((title . ,(read-from-minibuffer "Title: "
+  `((title ,(read-from-minibuffer "Title: "
                                     (alist-get 'title item)))))
 
 (defun azdev/set-current-item-state--new ()
@@ -871,6 +873,10 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
   (interactive)
   (message (number-to-string (azdev/ewoc-current-id azdev/wi-ewoc))))
 
+(defun azdev/print-to-pdf ()
+  (interactive)
+  (my/pdf-print-buffer-with-faces "~/Desktop/devops.devops"))
+
 (map! :leader
       :desc "Set active state"
       :n "da" #'azdev/set-current-item-state--active)
@@ -894,6 +900,10 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
 (map! :leader
       :desc "Visit"
       :n "dv" #'azdev/visit-current-item-www)
+
+(map! :leader
+      :desc "Print"
+      :n "dp" #'azdev/print-to-pdf)
 
 (defun add-doom-mapping ()
   "Add a keybinding in doom emacs for devops drawing"
