@@ -412,35 +412,37 @@ PRED is a function which takes an item."
                             (heading . azdev-heading)))
 
 (defface azdev-epic
-  '((default :foreground "#FF7B00"
-      :height 1.5
-      :background "white"
+  '((default :foreground "white"
+      :height 2.5
+      :background "#FF7B00"
       :weight ultra-bold))
        "Basic face for highlighting."
        :group 'azdev-faces)
 
 (defface azdev-feature
-  '((default :foreground "#773B93"
+  '((default :foreground "white"
+      :background "#773B93"
       :height 1.2
       :weight bold))
-  "Basic face for highlighting."
-       :group 'azdev-faces)
+  " Basic face for highlighting. "
+:group 'azdev-faces)
 
 (defface azdev-dev-task
-  '((default :foreground "black"  ;; "#FBD144"
-      :background "default"))
+  '((default :foreground "black"
+      :background "#FBD144"))
        "Basic face for highlighting."
        :group 'azdev-faces)
 
 (defface azdev-admin-task
-  '((default :foreground "#0D60AB"
-      :background "default"))
+  '((default :foreground "white"
+      :background "#0D60AB"))
        "Basic face for highlighting."
        :group 'azdev-faces)
 
 (defface azdev-heading
-  '((default :foreground "white"
-      :background "DimGray"))
+  '((default
+      :background "default"
+      :height 3.0))
        "Basic face for highlighting."
        :group 'azdev-faces)
 
