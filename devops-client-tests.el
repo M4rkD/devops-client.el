@@ -209,8 +209,27 @@ Use azdev-test/item! to create the items."
                   azdev-test/mock-store--team-name)
                  '((0 . 100) (1 . 11) (2 . 1) (2 . 2) (1 . 12) (2 . 3) (2 . 4)))))
 
+(ert-deftest test-insert-blank-line-before-epics ()
+  "Inserts blank before Epic entries by default"
+  (let* ((store (azdev-test/mock-store))
+         (ids+level (azdev/team-work-item-id+level
+                     store
+                     azdev-test/mock-store--team-name)))
+    (should (equal
+             (azdev/insert-blank-before-matching-line store ids+level)
+             '((blank-line) (0 . 100) (1 . 11) (2 . 1) (2 . 2) (1 . 12) (2 . 3) (2 . 4))))))
 
-(ert-deftest test-print-from-teams-list-of-strings ()
+(ert-deftest test-insert-blank-line-before-feature ()
+  "Inserts blank before Epic entries by default"
+  (let* ((store (azdev-test/mock-store))
+         (ids+level (azdev/team-work-item-id+level
+                     store
+                     azdev-test/mock-store--team-name)))
+    (should (equal
+             (azdev/insert-blank-before-matching-line store ids+level "Feature")
+             '((0 . 100) (blank-line) (1 . 11) (2 . 1) (2 . 2) (1 . 12) (2 . 3) (2 . 4))))))
+
+(ert-deftest test-print-from-teams-list-of-strings () ;
   "tree-from-teams should return a list of strings."
   (should (equal (azdev/team-work-item-id+level
                   (azdev-test/mock-store)
