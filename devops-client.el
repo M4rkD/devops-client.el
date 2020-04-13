@@ -491,6 +491,7 @@ PRED is a function which takes an item."
    ((string= id "Feature") 'feature)
    ((string= id "Development Task") 'dev-task)
    ((string= id "Admin Task") 'admin-task)
+   ((stringp id) (make-symbol id))
    (t id))
   )
 
