@@ -217,7 +217,7 @@ Use azdev-test/item! to create the items."
                      azdev-test/mock-store--team-name)))
     (should (equal
              (azdev/insert-blank-before-matching-line store ids+level)
-             '((blank-line) (blank-line) (0 . 100) (1 . 11) (2 . 1) (2 . 2) (1 . 12) (2 . 3) (2 . 4))))))
+             '((blank-line) (0 . 100) (1 . 11) (2 . 1) (2 . 2) (1 . 12) (2 . 3) (2 . 4))))))
 
 (ert-deftest test-insert-blank-line-before-feature ()
   "Inserts blank before Epic entries by default"
@@ -459,22 +459,38 @@ with an explicit path when provided as a string."
              (c)))))
 
 
-(ert-deftest azdev/test--string-list-for-task ()
-  (should
-   (equal
-    (azdev/--string-list-for-task
-     (azdev-test/item! 100 nil "Work Item"))
-    '(":100:     " "Title#100                               " "state #100" "assigned-to ..." "Work Item      " "2016-03-25 "))))
-
-
 (ert-deftest azdev/test-string-list-for-task ()
   (should
    (equal
     (azdev/string-for-task
      (azdev-test/item! 100 nil "Work Item")
      1)
-    (apply #'concat
-           '(":100:     " "Title#100                               " "state #100" "assigned-to ..." "Work Item      " "2016-03-25 " "\n")))))
+    "     :100:     Title#100                               state #100assigned-to ...Work Item      2016-03-25 ")))
+
+(ert-deftest azdev/test-display-mapping-dev-task ()
+  (should
+   (consp
+    (azdev/get-display-mapping (azdev-test/item! 100 nil "Development Task")))))
+
+(ert-deftest azdev/test-display-mapping-feature ()
+  (should
+   (consp
+    (azdev/get-display-mapping (azdev-test/item! 100 nil "Feature")))))
+
+(ert-deftest azdev/test-string-for-task-display-mapping--development-task ()
+  (should
+   (consp
+    (azdev/get-display-mapping (azdev-test/item! 100 nil "Development Task")))))
+
+(ert-deftest azdev/test-string-for-task-display-mapping--epic ()
+  (should
+   (listp
+    (azdev/get-display-mapping '((work-item-type "Development Task"))))))
+
+(ert-deftest azdev/test-string-for-task-display-mapping--default ()
+  (should
+   (listp
+    (azdev/get-display-mapping '((work-item-type "$Non Existant Task Type$"))))))
 
 (provide 'devops-client-tests)
 ;;; devops-client-tests.el ends here

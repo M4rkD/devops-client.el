@@ -49,6 +49,40 @@
 (defvar azdev/work-item-show-filter 'filter-open-or-recently-closed)
 ;; (defvar azdev/work-item-show-filter 'filter-nothing)
 
+(defvar azdev/task-display-mapping
+  `(("ID" id 10 ,#'azdev/id->printed-id)
+    ("Title" title 40 ,#'identity)
+    ("Status" state 10 ,#'identity)
+    ("Assigned To" assigned-to 15 ,(lambda (name) (or name "---------------")))
+    ("Type" work-item-type 15 ,#'identity)
+    ("Updated" changed-date 11 ,(-partial #'format-time-string "%Y-%m-%d")))
+  "List of mappings to obtain string for each column.
+Each entry is of the form:
+ (column-name field-in-data column-width transform-function)
+Tranform is a function which takes in the value of key field-in-data of
+work item data, and returns the string to display.
+")
+
+(defvar azdev/epic-feature-display-mapping
+  `(("Title" title 40 ,#'identity)
+    ("ID" id 10 ,#'azdev/id->printed-id)
+    ("Status" state 10 ,#'identity))
+  "List of mappings to obtain string for each column.
+Each entry is of the form:
+ (column-name field-in-data column-width transform-function)
+Tranform is a function which takes in the value of key field-in-data of
+work item data, and returns the string to display.
+")
+
+(defvar azdev/map:work-item->display-string
+  (list "Development Task" 'azdev/task-display-mapping
+        "Admin Task" 'azdev/task-display-mapping
+        "Epic" 'azdev/epic-feature-display-mapping
+        "Feature" 'azdev/epic-feature-display-mapping
+        nil 'azdev/task-display-mapping)
+  "Property list that specifies for each type of work item, the list of
+columns to display.
+Entry with key nil specifies the default entry.")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Tokens
@@ -405,12 +439,6 @@ PRED is a function which takes an item."
 ;;; Faces
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defvar azdev-faces-alist '((epic . azdev-epic)
-                            (feature . azdev-feature)
-                            (dev-task . azdev-dev-task)
-                            (admin-task . azdev-admin-task)
-                            (heading . azdev-heading)))
-
 (defface azdev-epic
   '((default :foreground "white"
       :height 2.5
@@ -447,10 +475,12 @@ PRED is a function which takes an item."
        :group 'azdev-faces)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Formatting functions
+;; Line utility functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defun azdev/line-start-to-next-line ()
+  "Return a cons pair (start . end) with character position of this line
+and the start of the next line (end of this line + 1)."
   (save-excursion
     (cons (progn (beginning-of-line)
                  (point))
@@ -460,11 +490,17 @@ PRED is a function which takes an item."
            (point-max)))))
 
 (defun azdev/ewoc-id-current-line (ewoc)
+  "Get the ID of the work item on the current line"
   (cdr
    (ewoc-data
     (ewoc-locate ewoc))))
 
-(defun azdev/format-work-item (font-face start end)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Formatting functions
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+(defun azdev/set-face (font-face start end)
   "Apply formatting to a work item line."
   (add-text-properties
    start
@@ -475,9 +511,9 @@ PRED is a function which takes an item."
 (defun azdev/format-range-from-work-item-type (wi-type start end)
   (cond
    ((string= "Admin Task" wi-type)
-           (azdev/format-work-item 'azdev-admin-task start end))
+           (azdev/set-face 'azdev-admin-task start end))
    ((string= "Development Task" wi-type)
-    (azdev/format-work-item 'azdev-dev-task start end))))
+    (azdev/set-face 'azdev-dev-task start end))))
 
 (defun azdev/apply-format-to-current-line (ewoc store)
   "Call format-func passing start of line and start of next line as arguments"
@@ -540,25 +576,6 @@ PRED is a function which takes an item."
   "Add start of depth LEVEL to the string start, to emulate org mode prefixes."
   (apply 'concat " " (make-list (+ level) "    ")))
 
-(defun azdev/convert-string-to-face-symbol (id)
-  (cond
-   ((string= id "Epic") 'epic)
-   ((string= id "Feature") 'feature)
-   ((string= id "Development Task") 'dev-task)
-   ((string= id "Admin Task") 'admin-task)
-   ((stringp id) (make-symbol id))
-   (t id))
-  )
-
-(defun azdev/face (id &rest str)
-  "Choose the font face by identifier ID and apply to STR."
-  (let* ((ident (azdev/convert-string-to-face-symbol id))
-         (str (apply #'concat str))
-         (face (or (alist-get ident azdev-faces-alist)
-                   'default)))
-    (put-text-property 0 (length str) 'face face str)
-    str))
-
 (defun azdev/string-for-epic-or-feature (data level)
   "Return a display string for a heading (either an epic or a feature) given by DATA at LEVEL."
   (let* ((prefix (azdev/prefix-formatting-function level))
@@ -566,8 +583,7 @@ PRED is a function which takes an item."
          (team (alist-get 'team data))
          (label (alist-get 'title data))
          (wi-type (alist-get 'work-item-type data)))
-    (azdev/face
-     wi-type
+    (concat
      prefix
      label
      )))
@@ -580,60 +596,49 @@ PRED is a function which takes an item."
           (azdev/find/epics-for-given-team store team-name)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Formatting
+;;; Printing lines
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun azdev/id->printed-id (id)
   (concat ":" (number-to-string id) ": "))
 
-(defvar azdev/string-for-task-display-mapping
-  `(("ID" id 10 ,#'azdev/id->printed-id)
-    ("Title" title 40 ,#'identity)
-    ("Status" state 10 ,#'identity)
-    ("Assigned To" assigned-to 15 ,(lambda (name) (if name
-                                                      name
-                                                    "---")))
-    ("Type" work-item-type 15 ,#'identity)
-    ("Updated" changed-date 11 ,(-partial #'format-time-string "%Y-%m-%d")))
-  "List of mappings to obtain string for each column.
-Each entry is of the form:
- (column-name field-in-data column-width transform-function)
-Tranform is a function which takes in the value of key field-in-data of
-work item data, and returns the string to display.
-")
+(defun azdev/get-display-mapping (data)
+  "Given a work item data, return specification of the columns of that work item."
+  (let* ((wi-type (alist-get 'work-item-type data))
+         (val (or (lax-plist-get azdev/map:work-item->display-string
+                                 wi-type)
+                  (lax-plist-get azdev/map:work-item->display-string
+                                 nil))))
+    (cond ((symbolp val) (eval val))
+          val)))
 
-(defun azdev/string-for-task (data level display-mapping)
+(cl-defun azdev/string-for-work-item (data &optional (level 0))
   "For a given data entry, return the values of columns as a vector.
 The way to obtain columns is defined in azdev/string-for-task-display-mapping."
-  (apply #'concat
-         (azdev/prefix-formatting-function level)
-         (mapcar
-          (-lambda ((col-name key length func))
-            (s-truncate length
-                        (s-pad-right length " "
-                                     (funcall func
-                                              (alist-get key data)))))
-          display-mapping)))
+  (let ((display-mapping (azdev/get-display-mapping data)))
+    (apply #'concat
+           (azdev/prefix-formatting-function level)
+           (mapcar
+            (-lambda ((col-name key length func))
+              (s-truncate length
+                          (s-pad-right length " "
+                                       (funcall func
+                                                (alist-get key data)))))
+            display-mapping))))
 
 (cl-defun azdev/string-for-work-item (data &optional (level 0))
   "Given work item DATA, print it using the PRINTER function.
 
 Printer is a function such as #'format or #'message"
   (let* ((wi-type (alist-get 'work-item-type data)))
-    (if (or (string= wi-type "Epic")
-                (string= wi-type "Feature"))
-            (azdev/string-for-epic-or-feature data level)
-          (azdev/string-for-task data level azdev/string-for-task-display-mapping))))
-
-(defun azdev/heading-as-formatted-string (heading-string)
-  "Format the HEADING-STRING as a header."
-  (azdev/face 'heading "\n" heading-string "\n"))
+    (azdev/string-for-task data
+                             level)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Modifying the ids list
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(cl-defun azdev/insert-blank-before-matching-line (store ids+level &optional (num-lines 2) (comp-values (list "Epic")))
+(cl-defun azdev/insert-blank-before-matching-line (store ids+level &optional (num-lines 1) (comp-values (list "Epic")))
   (mapcan
    (-lambda ((level . id))
      (let* ((data (ht-get store id))
@@ -711,7 +716,7 @@ Printer is a function such as #'format or #'message"
     (cond ((numberp level) (insert (azdev/string-for-work-item
                                     (ht-get azdev/wi-store id) level)))
           ;; When level is 'header
-          ((equal level 'header) (insert (azdev/heading-as-formatted-string id)))
+          ((equal level 'header) (insert id))
           ;; When level is 'blank-line
           ((equal level 'blank-line) (insert "\n")))))
 
@@ -721,12 +726,8 @@ Printer is a function such as #'format or #'message"
    (lambda (team-name)
      (ewoc-enter-last ewoc
                       `(header . ,team-name))
-     (ewoc-enter-last ewoc
-                      `(blank-line . ,team-name))
-
      (azdev/add-items-to-ewoc
       ewoc
-
       (azdev/insert-blank-before-matching-line
        store
        (azdev/team-work-item-id+level store team-name))))
@@ -878,7 +879,9 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
 
   (setq azdev/wi-ewoc
         (azdev/create-teams-ewoc! azdev/wi-store team-order))
+
   (devops-format azdev/wi-ewoc azdev/wi-store)
+
   )
 
 (defun devops-randomise-team-order ()
