@@ -570,7 +570,7 @@ PRED is a function which takes an item."
      wi-type
      prefix
      label
-     "\n")))
+     )))
 
 
 (defun azdev/team-work-item-id+level (store team-name)
@@ -602,22 +602,18 @@ Tranform is a function which takes in the value of key field-in-data of
 work item data, and returns the string to display.
 ")
 
-(defun azdev/--string-list-for-task (data)
+(defun azdev/string-for-task (data level display-mapping)
   "For a given data entry, return the values of columns as a vector.
 The way to obtain columns is defined in azdev/string-for-task-display-mapping."
-  (mapcar
-   (-lambda ((col-name key length func))
-     (s-truncate length
-                 (s-pad-right length " "
-                              (funcall func
-                                       (alist-get key data)))))
-   azdev/string-for-task-display-mapping))
-
-(defun azdev/string-for-task (data level)
   (apply #'concat
-   (append ;; (azdev/prefix-formatting-function level)
-           (azdev/--string-list-for-task data)
-           (list "\n"))))
+         (azdev/prefix-formatting-function level)
+         (mapcar
+          (-lambda ((col-name key length func))
+            (s-truncate length
+                        (s-pad-right length " "
+                                     (funcall func
+                                              (alist-get key data)))))
+          display-mapping)))
 
 (cl-defun azdev/string-for-work-item (data &optional (level 0))
   "Given work item DATA, print it using the PRINTER function.
@@ -627,7 +623,7 @@ Printer is a function such as #'format or #'message"
     (if (or (string= wi-type "Epic")
                 (string= wi-type "Feature"))
             (azdev/string-for-epic-or-feature data level)
-          (azdev/string-for-task data level))))
+          (azdev/string-for-task data level azdev/string-for-task-display-mapping))))
 
 (defun azdev/heading-as-formatted-string (heading-string)
   "Format the HEADING-STRING as a header."
@@ -748,10 +744,7 @@ Printer is a function such as #'format or #'message"
     (erase-buffer)
     (let ((ewoc
            (ewoc-create
-            #'azdev/ewoc-printer
-            nil ;; header
-            nil ;; footer
-            t))) ;; no newline
+            #'azdev/ewoc-printer)))
       (azdevops/add-team-items-to-ewoc ewoc store teams)
       ewoc)))
 
