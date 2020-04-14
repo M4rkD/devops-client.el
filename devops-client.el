@@ -447,6 +447,61 @@ PRED is a function which takes an item."
        :group 'azdev-faces)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Formatting functions
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun azdev/line-start-to-next-line ()
+  (save-excursion
+    (cons (progn (beginning-of-line)
+                 (point))
+          (min
+           (progn (end-of-line)
+                  (+ 1 (point)))
+           (point-max)))))
+
+(defun azdev/ewoc-id-current-line (ewoc)
+  (cdr
+   (ewoc-data
+    (ewoc-locate ewoc))))
+
+(defun azdev/format-work-item (font-face start end)
+  "Apply formatting to a work item line."
+  (add-text-properties
+   start
+   end
+   `(face
+     ,font-face)))
+
+(defun azdev/format-range-from-work-item-type (wi-type start end)
+  (cond
+   ((string= "Admin Task" wi-type)
+           (azdev/format-work-item 'azdev-admin-task start end))
+   ((string= "Development Task" wi-type)
+    (azdev/format-work-item 'azdev-dev-task start end))))
+
+(defun azdev/apply-format-to-current-line (ewoc store)
+  "Call format-func passing start of line and start of next line as arguments"
+  (-let* (((start . end) (azdev/line-start-to-next-line))
+          (id (azdev/ewoc-id-current-line ewoc))
+         (data (ht-get store id))
+         (wi-type (alist-get 'work-item-type data)))
+    (azdev/format-range-from-work-item-type wi-type start end)))
+
+(defun devops-format (ewoc store)
+  (save-excursion
+    (with-current-buffer azdev/buffer
+      (ewoc-goto-node ewoc (ewoc-nth ewoc 0))
+      (while (ewoc-next-line-or-nil ewoc)
+        (azdev/apply-format-to-current-line ewoc store)))))
+
+(defun ewoc-next-line-or-nil (ewoc)
+  (let ((curr (point)))
+    (ewoc-goto-next ewoc 1)
+    (if (= curr (point))
+        nil
+      t)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Filtering functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -536,23 +591,27 @@ PRED is a function which takes an item."
     ("Title" title 40 ,#'identity)
     ("Status" state 10 ,#'identity)
     ("Assigned To" assigned-to 15 ,(lambda (name) (if name
-                                       name
-                                     "---")))
+                                                      name
+                                                    "---")))
     ("Type" work-item-type 15 ,#'identity)
     ("Updated" changed-date 11 ,(-partial #'format-time-string "%Y-%m-%d")))
   "List of mappings to obtain string for each column.
-Each entry is of the form (id-in-data . function-to-convert-to-string.")
+Each entry is of the form:
+ (column-name field-in-data column-width transform-function)
+Tranform is a function which takes in the value of key field-in-data of
+work item data, and returns the string to display.
+")
 
 (defun azdev/--string-list-for-task (data)
   "For a given data entry, return the values of columns as a vector.
 The way to obtain columns is defined in azdev/string-for-task-display-mapping."
   (mapcar
-    (-lambda ((col-name key length func))
-      (s-truncate length
-                  (s-pad-right length " "
-                               (funcall func
-                                        (alist-get key data)))))
-    azdev/string-for-task-display-mapping))
+   (-lambda ((col-name key length func))
+     (s-truncate length
+                 (s-pad-right length " "
+                              (funcall func
+                                       (alist-get key data)))))
+   azdev/string-for-task-display-mapping))
 
 (defun azdev/string-for-task (data level)
   (apply #'concat
@@ -685,16 +744,17 @@ Printer is a function such as #'format or #'message"
    ids+level))
 
 (defun azdev/create-teams-ewoc! (store teams)
-  (pop-to-buffer "*devops-teams*")
-  (erase-buffer)
-  (let ((ewoc
-         (ewoc-create
-          #'azdev/ewoc-printer
-          nil ;; header
-          nil ;; footer
-          t))) ;; no newline
-    (azdevops/add-team-items-to-ewoc ewoc store teams)
-    ewoc))
+  (with-current-buffer azdev/buffer
+    (erase-buffer)
+    (let ((ewoc
+           (ewoc-create
+            #'azdev/ewoc-printer
+            nil ;; header
+            nil ;; footer
+            t))) ;; no newline
+      (azdevops/add-team-items-to-ewoc ewoc store teams)
+      ewoc)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Finding ewoc node and id
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -821,8 +881,12 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
 (defun devops-draw ()
   (interactive)
 
+  (pop-to-buffer azdev/buffer)
+
   (setq azdev/wi-ewoc
-        (azdev/create-teams-ewoc! azdev/wi-store team-order)))
+        (azdev/create-teams-ewoc! azdev/wi-store team-order))
+  (devops-format azdev/wi-ewoc azdev/wi-store)
+  )
 
 (defun devops-randomise-team-order ()
   (interactive)
