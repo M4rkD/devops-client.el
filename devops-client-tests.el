@@ -217,7 +217,7 @@ Use azdev-test/item! to create the items."
                      azdev-test/mock-store--team-name)))
     (should (equal
              (azdev/insert-blank-before-matching-line store ids+level)
-             '((blank-line) (0 . 100) (1 . 11) (2 . 1) (2 . 2) (1 . 12) (2 . 3) (2 . 4))))))
+             '((blank-line) (blank-line) (0 . 100) (1 . 11) (2 . 1) (2 . 2) (1 . 12) (2 . 3) (2 . 4))))))
 
 (ert-deftest test-insert-blank-line-before-feature ()
   "Inserts blank before Epic entries by default"
@@ -226,8 +226,12 @@ Use azdev-test/item! to create the items."
                      store
                      azdev-test/mock-store--team-name)))
     (should (equal
-             (azdev/insert-blank-before-matching-line store ids+level "Feature")
-             '((0 . 100) (blank-line) (1 . 11) (2 . 1) (2 . 2) (1 . 12) (2 . 3) (2 . 4))))))
+             (azdev/insert-blank-before-matching-line
+              store
+              ids+level
+              1
+              '("Feature"))
+             '((0 . 100) (blank-line) (1 . 11) (2 . 1) (2 . 2) (blank-line) (1 . 12) (2 . 3) (2 . 4))))))
 
 (ert-deftest test-print-from-teams-list-of-strings () ;
   "tree-from-teams should return a list of strings."
@@ -453,6 +457,24 @@ with an explicit path when provided as a string."
            '((a "a")
              (b "b")
              (c)))))
+
+
+(ert-deftest azdev/test--string-list-for-task ()
+  (should
+   (equal
+    (azdev/--string-list-for-task
+     (azdev-test/item! 100 nil "Work Item"))
+    '(":100:     " "Title#100                               " "state #100" "assigned-to ..." "Work Item      " "2016-03-25 "))))
+
+
+(ert-deftest azdev/test-string-list-for-task ()
+  (should
+   (equal
+    (azdev/string-for-task
+     (azdev-test/item! 100 nil "Work Item")
+     1)
+    (apply #'concat
+           '(":100:     " "Title#100                               " "state #100" "assigned-to ..." "Work Item      " "2016-03-25 " "\n")))))
 
 (provide 'devops-client-tests)
 ;;; devops-client-tests.el ends here

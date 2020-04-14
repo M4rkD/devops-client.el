@@ -517,37 +517,48 @@ PRED is a function which takes an item."
      label
      "\n")))
 
+
+(defun azdev/team-work-item-id+level (store team-name)
+  "Get (level . id) cons pairs for items to show."
+  (mapcan (lambda (epic-id)
+            (azdev/walk-tree store epic-id))
+          (azdev/find/epics-for-given-team store team-name)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Formatting
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun azdev/id->printed-id (id)
+  (concat ":" (number-to-string id) ": "))
+
+(defvar azdev/string-for-task-display-mapping
+  `(("ID" id 10 ,#'azdev/id->printed-id)
+    ("Title" title 40 ,#'identity)
+    ("Status" state 10 ,#'identity)
+    ("Assigned To" assigned-to 15 ,(lambda (name) (if name
+                                       name
+                                     "---")))
+    ("Type" work-item-type 15 ,#'identity)
+    ("Updated" changed-date 11 ,(-partial #'format-time-string "%Y-%m-%d")))
+  "List of mappings to obtain string for each column.
+Each entry is of the form (id-in-data . function-to-convert-to-string.")
+
+(defun azdev/--string-list-for-task (data)
+  "For a given data entry, return the values of columns as a vector.
+The way to obtain columns is defined in azdev/string-for-task-display-mapping."
+  (mapcar
+    (-lambda ((col-name key length func))
+      (s-truncate length
+                  (s-pad-right length " "
+                               (funcall func
+                                        (alist-get key data)))))
+    azdev/string-for-task-display-mapping))
+
 (defun azdev/string-for-task (data level)
-  (let* ((prefix (azdev/prefix-formatting-function level))
-         (id (alist-get 'id data))
-         (label (alist-get 'title data))
-         (changed-date (format-time-string "%Y-%m-%d"
-                                           (alist-get 'changed-date data)))
-         (wi-type (alist-get 'work-item-type data))
-         (wi-state (alist-get 'state data))
-         (wi-state-str (concat "[" (s-pad-right 8 " " wi-state) "]"))
-         (assigned-to (s-pad-right
-                       20
-                       " "
-                       (car
-                         (s-split "@"
-                                  (if-let ((name (alist-get 'assigned-to data)))
-                                      name
-                                    "---")))))
-         (pad-len (- 70 (length prefix))))
-    (azdev/face wi-type
-                (azdev/face 'prefix prefix)
-                " "
-                (azdev/face 'label (s-truncate pad-len (s-pad-right pad-len " " label)))
-                "  "
-                (azdev/face wi-state wi-state-str)
-                "   "
-                (azdev/face 'assigned assigned-to)
-                "       "
-                (number-to-string id)
-                "    "
-                (azdev/face wi-type changed-date)
-                "\n")))
+  (apply #'concat
+   (append ;; (azdev/prefix-formatting-function level)
+           (azdev/--string-list-for-task data)
+           (list "\n"))))
 
 (cl-defun azdev/string-for-work-item (data &optional (level 0))
   "Given work item DATA, print it using the PRINTER function.
@@ -562,12 +573,6 @@ Printer is a function such as #'format or #'message"
 (defun azdev/heading-as-formatted-string (heading-string)
   "Format the HEADING-STRING as a header."
   (azdev/face 'heading "\n" heading-string "\n"))
-
-(defun azdev/team-work-item-id+level (store team-name)
-  "Get (level . id) cons pairs for items to show."
-  (mapcan (lambda (epic-id)
-            (azdev/walk-tree store epic-id))
-          (azdev/find/epics-for-given-team store team-name)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Modifying the ids list
