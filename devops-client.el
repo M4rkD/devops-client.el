@@ -51,11 +51,10 @@
 
 (defvar azdev/task-display-mapping
   `(("ID" id 10 ,#'azdev/id->printed-id)
-    ("Title" title 40 ,#'azdev/title-with-indent)
+    ("Title" title 50 ,#'azdev/title-with-indent)
     ("Status" state 10 ,#'azdev/identity)
-    ("Assigned To" assigned-to 15 ,(lambda (name level) (or name "---------------")))
-    ("Type" work-item-type 15 ,#'azdev/identity)
-    ("Updated" changed-date 11 ,(lambda (time level) (format-time-string "%Y-%m-%d" time))))
+    ("Updated" changed-date 13 ,(lambda (time level) (format-time-string "%Y-%m-%d" time)))
+    ("Assigned To" assigned-to 20 ,(lambda (name level) (or name "---------------"))))
   "List of mappings to obtain string for each column.
 Each entry is of the form:
  (column-name field-in-data column-width transform-function)
