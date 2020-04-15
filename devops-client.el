@@ -599,7 +599,7 @@ and the start of the next line (end of this line + 1)."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defun azdev/id-std-font (data start end)
   "Sets font height to 1"
-  (azdev/overlay-face-props start end 'azdev-id-font))
+  (add-face-text-property start end 'azdev-id-font))
 
 (defun azdev/format-status (data start end)
   "Function used to format the `status` column.
@@ -608,7 +608,7 @@ to apply to the region."
   (let* ((state (azdev/get-field 'state data))
          (color (lax-plist-get azdev/state-colours state)))
     (if color
-        (azdev/overlay-face-props start end `((foreground-color . ,color)
+        (add-face-text-property start end `((foreground-color . ,color)
                                               (weight . bold))))))
 
 (defun azdev/no-font (data start end)
@@ -616,14 +616,12 @@ to apply to the region."
   (remove-text-properties start end '(face)))
 
 (defun azdev/team-bg-colour-font (data start end)
-  (azdev/overlay-face-props
-   start
-   end
-   'azdev-sidebar))
+  (add-face-text-property start end 'azdev-sidebar))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Formatting functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 
 (defun azdev/overlay-face-props (start end props)
   (let ((overlay (make-overlay start end)))
