@@ -492,10 +492,16 @@ with an explicit path when provided as a string."
    (listp
     (azdev/get-display-mapping '((work-item-type "$Non Existant Task Type$"))))))
 
+(ert-deftest azdev/test-col-widths-to-ranges ()
+  (should
+   (equal
+    (azdev/col-widths-to-ranges '(1 2 3))
+    '((1 . 1) (2 . 3) (4 . 6)))))
+
 (ert-deftest azdev/test-string-for-task-display-mapping--default ()
   (should
    (equal
-    (azdev/get-column-ranges-for-item (azdev-test/item! 100)))))
+    (azdev/get-column-ranges-for-item (azdev-test/item!)))))
 
 (provide 'devops-client-tests)
 ;;; devops-client-tests.el ends here

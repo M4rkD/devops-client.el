@@ -97,10 +97,9 @@ Negative numbers from column size denote the padding to the RHS of the string.
 ")
 
 (defvar azdev/team-display-mapping
-  `(("newline" nil 0 ,#'azdev/new-line)
-    ("Title" title 0 ,#'azdev/identity)
-    ("newline" nil 0 ,#'azdev/new-line)
-    ))
+  `(("newline" nil 1 ,#'azdev/new-line)
+    ("padding" nil 1 ,#'azdev/identity)
+    ("Title" title 0 ,#'azdev/identity)))
 
 (defvar azdev/map:work-item->display-string
   (list "Development Task" 'azdev/task-display-mapping
@@ -114,12 +113,12 @@ columns to display.
 Entry with key nil specifies the default entry.")
 
 (defvar azdev/formatting-faces
-  '("Development Task" (azdev-dev-task (azdev/no-font azdev/id-std-font azdev/format-status))
-    "Admin Task" (azdev-admin-task (azdev/no-font azdev/id-std-font azdev/format-status))
-    "Epic" (azdev-epic (azdev/no-font azdev/id-std-font))
-    "Feature" (azdev-feature (azdev/no-font azdev/id-std-font))
-    "Meeting" (azdev-meeting (azdev/no-font azdev/id-std-font))
-    "Meeting attendance" (azdev-meeting (azdev/no-font azdev/id-std-font))
+  '("Development Task" (azdev-dev-task (azdev/team-bg-colour-font azdev/id-std-font azdev/format-status))
+    "Admin Task" (azdev-admin-task (azdev/team-bg-colour-font azdev/id-std-font azdev/format-status))
+    "Epic" (azdev-epic (azdev/team-bg-colour-font azdev/id-std-font))
+    "Feature" (azdev-feature (azdev/team-bg-colour-font azdev/id-std-font))
+    "Meeting" (azdev-meeting (azdev/team-bg-colour-font azdev/id-std-font))
+    "Meeting attendance" (azdev-meeting (azdev/team-bg-colour-font azdev/id-std-font))
     team (azdev-team nil)
     )
   "Definitions of how to format rows/columns.
@@ -173,7 +172,7 @@ Otherwise return the RESPONSE, unchanged."
 (defun azdev/dispatch-post-request (uri data)
   (azdev/--dispatch-request uri "POST" data))
 
-(defun azdev/dispatch-patch-ding 'headrequest (uri data)
+(defun azdev/dispatch-patch-request (uri data)
   (azdev/--dispatch-request uri "PATCH" data))
 
 (defun azdev/--dispatch-request (uri method data)
@@ -543,8 +542,20 @@ PRED is a function which takes an item."
 
 (defface azdev-team
   `((,azdev/88-cols
-     :background "default"
-     :height 3.0)
+     :background "dark gray"
+     :foreground "white"
+     :height 1.5)
+    (default
+      :foreground "default"
+      :weight ultra-bold
+      ))
+       "Basic face for highlighting."
+       :group 'azdev-faces)
+
+(defface azdev-sidebar
+  `((,azdev/88-cols
+     :background "dark gray"
+     :foreground "white")
     (default
       :foreground "default"
       :weight ultra-bold
@@ -604,6 +615,12 @@ to apply to the region."
   "Sets font height to 1"
   (remove-text-properties start end '(face)))
 
+(defun azdev/team-bg-colour-font (data start end)
+  (azdev/overlay-face-props
+   start
+   end
+   'azdev-sidebar))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Formatting functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -658,7 +675,7 @@ Widths are determined by parsing azdev/get-display-mapping."
                    item-column-ranges))
     ))
 
-(defun azdev/apply-format-to-current-line (ewoc store)
+(defun azdev/apply-format-to-current-node (ewoc store)
   "Call format-func passing start of line and start of next line as arguments"
   (-let* (((start . end) (azdev/current-ewoc-node-bounds ewoc))
           (id (azdev/ewoc-id-current-line ewoc))
@@ -666,20 +683,27 @@ Widths are determined by parsing azdev/get-display-mapping."
     (azdev/format-range-from-work-item-type data start end)))
 
 (defun devops-format (ewoc store)
+  "Format the whole buffer by calling formatting function on each ewoc"
   (save-excursion
     (with-current-buffer azdev/buffer
       (ewoc-goto-node ewoc (ewoc-nth ewoc 0))
-      (azdev/apply-format-to-current-line ewoc store)
-      (while (ewoc-next-line-or-nil ewoc)
-        (azdev/apply-format-to-current-line ewoc store)))))
+      (azdev/apply-format-to-current-node ewoc store)
+      (while (azdev/ewoc-next-line-or-nil ewoc)
+        (azdev/apply-format-to-current-node ewoc store)))))
 
-(defun ewoc-next-line-or-nil (ewoc)
+(defun azdev/ewoc-next-line-or-nil (ewoc)
   (let ((curr (point)))
     (ewoc-goto-next ewoc 1)
     (if (= curr (point))
         nil
       t)))
 
+(defun azdev/ewoc-prev-line-or-nil (ewoc)
+  (let ((curr (point)))
+    (ewoc-goto-prev ewoc 1)
+    (if (= curr (point))
+        nil
+      t)))
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Filtering functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -720,7 +744,8 @@ Widths are determined by parsing azdev/get-display-mapping."
    title))
 
 (defun azdev/id->printed-id (id level)
-  (number-to-string id))
+  (concat " "
+          (number-to-string id)))
 
 (defun azdev/status-brackets (status level)
   (concat "[" (s-pad-right 9 " " status) "]"))
@@ -838,10 +863,15 @@ The way to obtain columns is defined in azdev/string-for-task-display-mapping."
 
 (defun azdev/ewoc-printer (ids+level)
   "TODO: the store is accessed directly here"
-  (let ((level (car ids+level))
-        (id (cdr ids+level)))
-    (insert (azdev/string-for-work-item
-             (azdev/get-data azdev/wi-store id) level))))
+  (let* ((level (car ids+level))
+        (id (cdr ids+level))
+        (data (azdev/get-data azdev/wi-store id))
+        (start (point)))
+
+    (insert (concat (azdev/string-for-work-item data level)
+                    "\n"))
+
+    (azdev/format-range-from-work-item-type data start (point))))
 
 (defun azdevops/add-team-items-to-ewoc (ewoc store teams)
   "Print the lines for all TEAMS using insert."
@@ -867,7 +897,10 @@ The way to obtain columns is defined in azdev/string-for-task-display-mapping."
     (erase-buffer)
     (let ((ewoc
            (ewoc-create
-            #'azdev/ewoc-printer)))
+            #'azdev/ewoc-printer
+            nil
+            nil
+            t)))
       (azdevops/add-team-items-to-ewoc ewoc store teams)
       ewoc)))
 
@@ -999,11 +1032,14 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
 
   (pop-to-buffer azdev/buffer)
 
+  (azure-devops-mode)
+
+  (setq-local inhibit-read-only t)
+
   (setq azdev/wi-ewoc
         (azdev/create-teams-ewoc! azdev/wi-store team-order))
 
-  (devops-format azdev/wi-ewoc azdev/wi-store)
-
+  (setq-local inhibit-read-only nil)
   )
 
 (defun devops-randomise-team-order ()
@@ -1044,6 +1080,14 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
 (defun azdev/update-item/set-title (item)
   `((title ,(read-from-minibuffer "Title: "
                                     (azdev/get-field 'title item)))))
+
+(defun azdev/next-entry ()
+  (interactive)
+  (azdev/ewoc-next-line-or-nil azdev/wi-ewoc))
+
+(defun azdev/prev-entry ()
+  (interactive)
+  (azdev/ewoc-prev-line-or-nil azdev/wi-ewoc))
 
 (defun azdev/set-current-item-state--new ()
   (interactive)
@@ -1089,33 +1133,24 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
   (interactive)
   (my/pdf-print-buffer-with-faces "~/Desktop/devops.devops"))
 
-(map! :leader
-      :desc "Set active state"
-      :n "da" #'azdev/set-current-item-state--active)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Major mode
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(map! :leader
-      :desc "Set new state"
-      :n "dn" #'azdev/set-current-item-state--new)
+(defun setup-evil-keybindings ()
+  (evil-local-set-key 'normal "j" 'azdev/next-entry)
+  (evil-local-set-key 'normal "k" 'azdev/prev-entry)
+  (evil-local-set-key 'normal "a" 'azdev/set-current-item-state--active) ; Set active state
+  (evil-local-set-key 'normal "n" 'azdev/set-current-item-state--new)    ; "Set new
+  (evil-local-set-key 'normal "c" 'azdev/set-current-item-state--closed) ; "Set closed state"
+  (evil-local-set-key 'normal "t" 'azdev/set-current-item-title)         ; Set title
+  (evil-local-set-key 'normal "i" 'azdev/fetch-current-id)               ; Print id
+  (evil-local-set-key 'normal "v" 'azdev/visit-current-item-www)         ; Visit
+  (evil-local-set-key 'normal "p" 'azdev/print-to-pdf))                   ; Print
 
-(map! :leader
-      :desc "Set closed state"
-      :n "dc" #'azdev/set-current-item-state--closed)
-
-(map! :leader
-      :desc "Set title"
-      :n "dt" #'azdev/set-current-item-title)
-
-(map! :leader
-      :desc "Print id"
-      :n "di" #'azdev/fetch-current-id)
-
-(map! :leader
-      :desc "Visit"
-      :n "dv" #'azdev/visit-current-item-www)
-
-(map! :leader
-      :desc "Print"
-      :n "dp" #'azdev/print-to-pdf)
+(define-derived-mode azure-devops-mode special-mode "Azure Devops"
+  "jor mode for interacting with azure devops. "
+  (setup-evil-keybindings))
 
 (defun add-doom-mapping ()
   "Add a keybinding in doom emacs for devops drawing"
