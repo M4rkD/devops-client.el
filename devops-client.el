@@ -84,6 +84,24 @@ work item data, and returns the string to display.
 columns to display.
 Entry with key nil specifies the default entry.")
 
+(defvar azdev/formatting-faces
+  '("Development Task" (azdev-dev-task (nil nil azdev/format-status))
+    "Admin Task" (azdev-admin-task (nil nil azdev/format-status))
+    "Epic" (azdev-epic nil)
+    "Feature" (azdev-feature nil)
+    "Meeting" (azdev-meeting nil)
+    "Meeting attendance" (azdev-meeting nil)
+    )
+  "Definitions of how to format rows/columns.
+First element is the face to use for the row.
+The second column in a list of functions to use to format each row.
+Each function should take three arguments:
+the work item data, the start position of the column, and the end position.")
+
+(defvar azdev/state-colours '("Closed" "lime green"
+                              "Active" "red")
+  "Colours for colouring each state text.")
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Tokens
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -467,6 +485,12 @@ PRED is a function which takes an item."
        "Basic face for highlighting."
        :group 'azdev-faces)
 
+(defface azdev-meeting
+  '((default :foreground "black"
+      :background "cornsilk"))
+  "Basic face for highlighting. "
+:group 'azdev-faces)
+
 (defface azdev-heading
   '((default
       :background "default"
@@ -499,29 +523,74 @@ and the start of the next line (end of this line + 1)."
 ;; Formatting functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defun azdev/overlay-face-props (start end props)
+  (let ((overlay (make-overlay start end)))
+    (overlay-put overlay 'face props)))
 
-(defun azdev/set-face (font-face start end)
-  "Apply formatting to a work item line."
-  (add-text-properties
-   start
-   end
-   `(face
-     ,font-face)))
+(defun azdev/format-status (data start end)
+  "Function used to format the `status` column.
+This uses the azdev/state-colours plist to determine the colour
+to apply to the region."
+  (let* ((state (alist-get 'state data))
+         (color (lax-plist-get azdev/state-colours state)))
+    (if color
+        (azdev/overlay-face-props start end `((foreground-color . ,color)
+                                     (weight . bold))))))
 
-(defun azdev/format-range-from-work-item-type (wi-type start end)
-  (cond
-   ((string= "Admin Task" wi-type)
-           (azdev/set-face 'azdev-admin-task start end))
-   ((string= "Development Task" wi-type)
-    (azdev/set-face 'azdev-dev-task start end))))
+(defun azdev/get-column-widths-for-item (data)
+  "For a work item DATA, return a list of the widths of each printed column.
+Widths are determined by parsing azdev/get-display-mapping."
+  (mapcar
+   (-partial #'nth 2)
+   (azdev/get-display-mapping data)))
+
+(defun azdev/get-column-ranges-for-item (data)
+  (azdev/col-widths-to-ranges
+   (azdev/get-column-widths-for-item data)))
+
+(defun azdev/col-widths-to-ranges (widths)
+  (cdr
+   (-reduce-from (lambda (acc it)
+                   (let* ((start (cdr  (-last-item acc)))
+                          (end (+ start it)))
+                     (append acc (list (cons start end)))))
+                 '((0 . 0))
+                 widths)))
+
+(defun azdev/lim-point-to-buffer (pos)
+  (min pos
+       (point-max)))
+
+
+(defun azdev/format-range-from-work-item-type (data start end)
+  (-let* ((wi-type (alist-get 'work-item-type data))
+          ((default-face column-faces) (lax-plist-get azdev/formatting-faces wi-type))
+          (item-column-ranges (azdev/get-column-ranges-for-item data))
+          (indent (azdev/indent-at-point start)))
+    (if default-face
+        (add-text-properties start end `(face ,default-face)))
+    (if column-faces
+;;;  if column-faces is defined, assume that it's a formatting
+;;;  function to apply to range to format
+        (-zip-with (lambda (fmt-fnc range)
+                     (let* ((start-col (+ indent start (car range)))
+                           (end-col (+ indent start (cdr range))))
+                       (if fmt-fnc
+                           (funcall fmt-fnc
+                                    data
+                                    (azdev/lim-point-to-buffer start-col)
+                                    (azdev/lim-point-to-buffer end-col)))))
+                   column-faces
+                   item-column-ranges))
+    ))
 
 (defun azdev/apply-format-to-current-line (ewoc store)
   "Call format-func passing start of line and start of next line as arguments"
   (-let* (((start . end) (azdev/line-start-to-next-line))
           (id (azdev/ewoc-id-current-line ewoc))
-         (data (ht-get store id))
-         (wi-type (alist-get 'work-item-type data)))
-    (azdev/format-range-from-work-item-type wi-type start end)))
+          (data (ht-get store id))
+          (wi-type (alist-get 'work-item-type data)))
+    (azdev/format-range-from-work-item-type data start end)))
 
 (defun devops-format (ewoc store)
   (save-excursion
@@ -572,22 +641,8 @@ and the start of the next line (end of this line + 1)."
 ;; Printing
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun azdev/prefix-formatting-function (level)
-  "Add start of depth LEVEL to the string start, to emulate org mode prefixes."
-  (apply 'concat " " (make-list (+ level) "    ")))
-
-(defun azdev/string-for-epic-or-feature (data level)
-  "Return a display string for a heading (either an epic or a feature) given by DATA at LEVEL."
-  (let* ((prefix (azdev/prefix-formatting-function level))
-         (id (alist-get 'id data))
-         (team (alist-get 'team data))
-         (label (alist-get 'title data))
-         (wi-type (alist-get 'work-item-type data)))
-    (concat
-     prefix
-     label
-     )))
-
+(defun azdev/indent-length (level)
+  (+ 1 (* 4 level)))
 
 (defun azdev/team-work-item-id+level (store team-name)
   "Get (level . id) cons pairs for items to show."
@@ -612,27 +667,33 @@ and the start of the next line (end of this line + 1)."
     (cond ((symbolp val) (eval val))
           val)))
 
+(defun azdev/indent-at-point (pos)
+  (or
+   (plist-get (text-properties-at pos)
+              'azdev-line-indent)
+   0))
+
+(defun azdev/add-text-props-to-string (props str)
+  (let ((len (length str)))
+    (add-text-properties 0 len props str)
+    str))
+
 (cl-defun azdev/string-for-work-item (data &optional (level 0))
   "For a given data entry, return the values of columns as a vector.
 The way to obtain columns is defined in azdev/string-for-task-display-mapping."
-  (let ((display-mapping (azdev/get-display-mapping data)))
-    (apply #'concat
-           (azdev/prefix-formatting-function level)
-           (mapcar
-            (-lambda ((col-name key length func))
-              (s-truncate length
-                          (s-pad-right length " "
-                                       (funcall func
-                                                (alist-get key data)))))
-            display-mapping))))
-
-(cl-defun azdev/string-for-work-item (data &optional (level 0))
-  "Given work item DATA, print it using the PRINTER function.
-
-Printer is a function such as #'format or #'message"
-  (let* ((wi-type (alist-get 'work-item-type data)))
-    (azdev/string-for-task data
-                             level)))
+  (let ((display-mapping (azdev/get-display-mapping data))
+        (indent (azdev/indent-length level)))
+    (azdev/add-text-props-to-string
+     `(azdev-line-indent ,indent)
+     (apply #'concat
+            (s-repeat indent " ")
+            (mapcar
+             (-lambda ((col-name key length func))
+               (s-truncate length
+                           (s-pad-right length " "
+                                        (funcall func
+                                                 (alist-get key data)))))
+             display-mapping)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Modifying the ids list

@@ -127,7 +127,7 @@ Use azdev-test/item! to create the items."
         (ht-set store id (azdev-test/item! id children work-item-type))))
     store))
 
-(cl-defun azdev-test/item! (item-id &optional (children nil) (work-item-type "Work Item"))
+(cl-defun azdev-test/item! (&optional (item-id 1) (children nil) (work-item-type "Work Item"))
   "Crate a fake work item for testing"
   (let ((id-str (number-to-string item-id)))
     `((id . ,item-id)
@@ -491,6 +491,11 @@ with an explicit path when provided as a string."
   (should
    (listp
     (azdev/get-display-mapping '((work-item-type "$Non Existant Task Type$"))))))
+
+(ert-deftest azdev/test-string-for-task-display-mapping--default ()
+  (should
+   (equal
+    (azdev/get-column-ranges-for-item (azdev-test/item! 100)))))
 
 (provide 'devops-client-tests)
 ;;; devops-client-tests.el ends here
