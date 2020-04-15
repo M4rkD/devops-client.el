@@ -51,22 +51,23 @@
 
 (defvar azdev/task-display-mapping
   `(("ID" id 10 ,#'azdev/id->printed-id)
-    ("Title" title 40 ,#'identity)
-    ("Status" state 10 ,#'identity)
-    ("Assigned To" assigned-to 15 ,(lambda (name) (or name "---------------")))
-    ("Type" work-item-type 15 ,#'identity)
-    ("Updated" changed-date 11 ,(-partial #'format-time-string "%Y-%m-%d")))
+    ("Title" title 40 ,#'azdev/identity)
+    ("Status" state 10 ,#'azdev/identity)
+    ("Assigned To" assigned-to 15 ,(lambda (name level) (or name "---------------")))
+    ("Type" work-item-type 15 ,#'azdev/identity)
+    ("Updated" changed-date 11 ,(lambda (time level) (format-time-string "%Y-%m-%d" time))))
   "List of mappings to obtain string for each column.
 Each entry is of the form:
  (column-name field-in-data column-width transform-function)
 Tranform is a function which takes in the value of key field-in-data of
 work item data, and returns the string to display.
+The dynamic scopre variable *level* is also set in the function scope.
 ")
 
 (defvar azdev/epic-feature-display-mapping
-  `(("Title" title 40 ,#'identity)
-    ("ID" id 10 ,#'azdev/id->printed-id)
-    ("Status" state 10 ,#'identity))
+  `(("ID" id 10 ,#'azdev/id->printed-id)
+    ("Title" title 40 ,#'azdev/identity)
+    ("Status" state 10 ,#'azdev/identity))
   "List of mappings to obtain string for each column.
 Each entry is of the form:
  (column-name field-in-data column-width transform-function)
@@ -87,8 +88,8 @@ Entry with key nil specifies the default entry.")
 (defvar azdev/formatting-faces
   '("Development Task" (azdev-dev-task (nil nil azdev/format-status))
     "Admin Task" (azdev-admin-task (nil nil azdev/format-status))
-    "Epic" (azdev-epic nil)
-    "Feature" (azdev-feature nil)
+    "Epic" (azdev-epic (azdev/normal-height-font))
+    "Feature" (azdev-feature (azdev/normal-height-font))
     "Meeting" (azdev-meeting nil)
     "Meeting attendance" (azdev-meeting nil)
     )
@@ -520,12 +521,11 @@ and the start of the next line (end of this line + 1)."
     (ewoc-locate ewoc))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Formatting functions
+;; Column formatting functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defun azdev/overlay-face-props (start end props)
-  (let ((overlay (make-overlay start end)))
-    (overlay-put overlay 'face props)))
+(defun azdev/normal-height-font (data start end)
+  "Sets font height to 1"
+  (azdev/overlay-face-props start end `(height . (/ 1.0 2.5))))
 
 (defun azdev/format-status (data start end)
   "Function used to format the `status` column.
@@ -536,6 +536,14 @@ to apply to the region."
     (if color
         (azdev/overlay-face-props start end `((foreground-color . ,color)
                                      (weight . bold))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Formatting functions
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun azdev/overlay-face-props (start end props)
+  (let ((overlay (make-overlay start end)))
+    (overlay-put overlay 'face props)))
 
 (defun azdev/get-column-widths-for-item (data)
   "For a work item DATA, return a list of the widths of each printed column.
@@ -638,6 +646,16 @@ Widths are determined by parsing azdev/get-display-mapping."
         (funcall check-time data))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Printing utility functions
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun azdev/id->printed-id (id level)
+  (concat "|" (number-to-string id) "| "))
+
+(defun azdev/identity (id level)
+  id)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Printing
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -649,13 +667,6 @@ Widths are determined by parsing azdev/get-display-mapping."
   (mapcan (lambda (epic-id)
             (azdev/walk-tree store epic-id))
           (azdev/find/epics-for-given-team store team-name)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Printing lines
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defun azdev/id->printed-id (id)
-  (concat ":" (number-to-string id) ": "))
 
 (defun azdev/get-display-mapping (data)
   "Given a work item data, return specification of the columns of that work item."
@@ -681,19 +692,16 @@ Widths are determined by parsing azdev/get-display-mapping."
 (cl-defun azdev/string-for-work-item (data &optional (level 0))
   "For a given data entry, return the values of columns as a vector.
 The way to obtain columns is defined in azdev/string-for-task-display-mapping."
-  (let ((display-mapping (azdev/get-display-mapping data))
-        (indent (azdev/indent-length level)))
-    (azdev/add-text-props-to-string
-     `(azdev-line-indent ,indent)
-     (apply #'concat
-            (s-repeat indent " ")
-            (mapcar
-             (-lambda ((col-name key length func))
-               (s-truncate length
-                           (s-pad-right length " "
-                                        (funcall func
-                                                 (alist-get key data)))))
-             display-mapping)))))
+          (let ((display-mapping (azdev/get-display-mapping data)))
+            (apply #'concat
+                   (mapcar
+                    (-lambda ((col-name key length func))
+                      (s-truncate length
+                                  (s-pad-right length " "
+                                               (funcall func
+                                                        (alist-get key data)
+                                                        level))))
+                    display-mapping))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Modifying the ids list
