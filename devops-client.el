@@ -24,8 +24,29 @@
 (require 'dash)
 (require 'cl-lib)
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Store abstraction
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (defun azdev/new-store ()
   (ht-create))
+
+(defun azdev/get-data (store id)
+  "Get item if from store.
+If item ID is not a number, then it's probably already an item. In which case, return it directly."
+  (if (numberp id)
+      (ht-get store id)
+    id))
+
+(defun azdev/store-add (store key value)
+  (ht-set! store key value))
+
+(defun azdev/get-field (id data)
+  (alist-get id data))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Variables
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defvar azdev/base-url "https://dev.azure.com/swansea-university/_apis"
   "The base url of the organisation.")
@@ -52,7 +73,7 @@
 (defvar azdev/task-display-mapping
   `(("ID" id 7 ,#'azdev/id->printed-id)
     ("Title" title 50 ,#'azdev/string-with-indent)
-    ("Status" state 10 ,#'azdev/identity)
+    ("Status" state 13 ,#'azdev/status-brackets)
     ("Updated" changed-date 13 ,(lambda (time level) (format-time-string "%Y-%m-%d" time)))
     ("Assigned To" assigned-to 20 ,(lambda (name level) (or name "---------------"))))
   "List of mappings to obtain string for each column.
@@ -65,7 +86,7 @@ The dynamic scopre variable *level* is also set in the function scope.
 
 (defvar azdev/epic-feature-display-mapping
   `(("ID" id 7 ,#'azdev/id->printed-id)
-    ("Title" title 80 ,#'azdev/string-with-indent)
+    ("Title" title 50 ,#'azdev/string-with-indent)
     ("Status" state -1 ,#'azdev/status-brackets))
   "List of mappings to obtain string for each column.
 Each entry is of the form:
@@ -75,27 +96,31 @@ work item data, and returns the string to display.
 Negative numbers from column size denote the padding to the RHS of the string.
 ")
 
-(defvar azdev/heading-display-mapping
-  '(("Title" string 0 ,#'azdev/identity)))
+(defvar azdev/team-display-mapping
+  `(("newline" nil 0 ,#'azdev/new-line)
+    ("Title" title 0 ,#'azdev/identity)
+    ("newline" nil 0 ,#'azdev/new-line)
+    ))
 
 (defvar azdev/map:work-item->display-string
   (list "Development Task" 'azdev/task-display-mapping
         "Admin Task" 'azdev/task-display-mapping
         "Epic" 'azdev/epic-feature-display-mapping
         "Feature" 'azdev/epic-feature-display-mapping
-        'heading 'azdev/heading-display-mapping
+        'team 'azdev/team-display-mapping
         nil 'azdev/task-display-mapping)
   "Property list that specifies for each type of work item, the list of
 columns to display.
 Entry with key nil specifies the default entry.")
 
 (defvar azdev/formatting-faces
-  '("Development Task" (azdev-dev-task (azdev/no-font azdev/id-std-font nil azdev/format-status))
-    "Admin Task" (azdev-admin-task (azdev/no-font azdev/id-std-font nil azdev/format-status))
+  '("Development Task" (azdev-dev-task (azdev/no-font azdev/id-std-font azdev/format-status))
+    "Admin Task" (azdev-admin-task (azdev/no-font azdev/id-std-font azdev/format-status))
     "Epic" (azdev-epic (azdev/no-font azdev/id-std-font))
     "Feature" (azdev-feature (azdev/no-font azdev/id-std-font))
     "Meeting" (azdev-meeting (azdev/no-font azdev/id-std-font))
     "Meeting attendance" (azdev-meeting (azdev/no-font azdev/id-std-font))
+    team (azdev-team nil)
     )
   "Definitions of how to format rows/columns.
 First element is the face to use for the row.
@@ -148,7 +173,7 @@ Otherwise return the RESPONSE, unchanged."
 (defun azdev/dispatch-post-request (uri data)
   (azdev/--dispatch-request uri "POST" data))
 
-(defun azdev/dispatch-patch-request (uri data)
+(defun azdev/dispatch-patch-ding 'headrequest (uri data)
   (azdev/--dispatch-request uri "PATCH" data))
 
 (defun azdev/--dispatch-request (uri method data)
@@ -284,8 +309,8 @@ the list is the function to call, and the remaining entries are the additional a
 
 (defun azdev/work-item-->store (store item)
   "Puts the work ITEM in the hash STORE by id, and return id."
-  (let ((id (alist-get 'id item)))
-    (ht-set! store id item)
+  (let ((id (azdev/get-field 'id item)))
+    (azdev/store-add store id item)
     id))
 
 (defun azdev/fetch-work-item-data-urls (ids)
@@ -403,7 +428,7 @@ PRED is a function which takes an item."
   (/ (float-time
       (time-subtract
        time
-       (alist-get key work-item)
+       (azdev/get-field key work-item)
        )) (* 60 60 24)))
 
 (cl-defun azdev/pred/days-since-time (days &optional (key 'changed-date))
@@ -415,14 +440,14 @@ PRED is a function which takes an item."
 
 (defun azdev/pred/string-value (key string)
   (lambda (v)
-    (string= (alist-get key v) string)))
+    (string= (azdev/get-field key v) string)))
 
 (defun azdev/pred/epic ()
   (azdev/pred/string-value 'work-item-type "Epic"))
 
 (defun azdev/pred/team-name (team-name)
   (lambda (v)
-    (string= (alist-get 'team v) team-name)))
+    (string= (azdev/get-field 'team v) team-name)))
 
 (defun azdev/pred/or (pred1 pred2)
   (lambda (v)
@@ -436,7 +461,7 @@ PRED is a function which takes an item."
   "Fetch all unique values of field KEY in STORE."
   (delete-dups
   (ht-map (lambda (k v)
-            (alist-get key v))
+            (azdev/get-field key v))
           store)))
 
 
@@ -447,8 +472,8 @@ PRED is a function which takes an item."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (cl-defun azdev/walk-tree (store curr-node-id &optional (level 0) (acc nil))
-  (let* ((data (ht-get store curr-node-id))
-         (children (alist-get 'children data)))
+  (let* ((data (azdev/get-data store curr-node-id))
+         (children (azdev/get-field 'children data)))
     (if data
         (if children
           (-reduce-from (lambda (acc-child child-node-id)
@@ -494,8 +519,8 @@ PRED is a function which takes an item."
      :foreground "black"
      :background "#FBD144")
     (default
-      :background "white"
-      :fooreground "yellow"))
+      :foreground "white"
+      :background "yellow"))
        "Basic face for highlighting."
        :group 'azdev-faces)
 
@@ -516,12 +541,14 @@ PRED is a function which takes an item."
   "Basic face for highlighting. "
 :group 'azdev-faces)
 
-(defface azdev-heading
+(defface azdev-team
   `((,azdev/88-cols
      :background "default"
      :height 3.0)
     (default
-      :fooreground "default"))
+      :foreground "default"
+      :weight ultra-bold
+      ))
        "Basic face for highlighting."
        :group 'azdev-faces)
 
@@ -535,16 +562,14 @@ PRED is a function which takes an item."
 ;; Line utility functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun azdev/line-start-to-next-line ()
+(defun azdev/current-ewoc-node-bounds (ewoc)
   "Return a cons pair (start . end) with character position of this line
 and the start of the next line (end of this line + 1)."
   (save-excursion
-    (cons (progn (beginning-of-line)
-                 (point))
-          (min
-           (progn (end-of-line)
-                  (+ 1 (point)))
-           (point-max)))))
+    (let ((start (ewoc-location (ewoc-locate ewoc)))
+          (end (progn (ewoc-goto-next ewoc 1)
+                      (ewoc-location (ewoc-locate ewoc)))))
+      (cons start end))))
 
 (defun azdev/ewoc-level-current-line (ewoc)
   "Get the ID of the work item on the current line"
@@ -569,7 +594,7 @@ and the start of the next line (end of this line + 1)."
   "Function used to format the `status` column.
 This uses the azdev/state-colours plist to determine the colour
 to apply to the region."
-  (let* ((state (alist-get 'state data))
+  (let* ((state (azdev/get-field 'state data))
          (color (lax-plist-get azdev/state-colours state)))
     (if color
         (azdev/overlay-face-props start end `((foreground-color . ,color)
@@ -612,19 +637,18 @@ Widths are determined by parsing azdev/get-display-mapping."
        (point-max)))
 
 
-(defun azdev/format-range-from-work-item-type (id data start end)
-  (-let* ((wi-type (alist-get 'work-item-type data))
+(defun azdev/format-range-from-work-item-type (data start end)
+  (-let* ((wi-type (azdev/get-field 'work-item-type data))
           ((default-face column-faces) (lax-plist-get azdev/formatting-faces wi-type))
-          (item-column-ranges (azdev/get-column-ranges-for-item data))
-          (indent (azdev/indent-at-point start)))
+          (item-column-ranges (azdev/get-column-ranges-for-item data)))
     (if default-face
         (add-text-properties start end `(face ,default-face)))
     (if column-faces
 ;;;  if column-faces is defined, assume that it's a formatting
 ;;;  function to apply to range to format
         (-zip-with (lambda (fmt-fnc range)
-                     (let* ((start-col (+ indent start (car range)))
-                           (end-col (+ indent start (cdr range))))
+                     (let* ((start-col (+ start (car range)))
+                           (end-col (+ start (cdr range))))
                        (if fmt-fnc
                            (funcall fmt-fnc
                                     data
@@ -636,15 +660,16 @@ Widths are determined by parsing azdev/get-display-mapping."
 
 (defun azdev/apply-format-to-current-line (ewoc store)
   "Call format-func passing start of line and start of next line as arguments"
-  (-let* (((start . end) (azdev/line-start-to-next-line))
+  (-let* (((start . end) (azdev/current-ewoc-node-bounds ewoc))
           (id (azdev/ewoc-id-current-line ewoc))
-          (data (ht-get store id)))
-    (azdev/format-range-from-work-item-type id data start end)))
+          (data (azdev/get-data store id)))
+    (azdev/format-range-from-work-item-type data start end)))
 
 (defun devops-format (ewoc store)
   (save-excursion
     (with-current-buffer azdev/buffer
       (ewoc-goto-node ewoc (ewoc-nth ewoc 0))
+      (azdev/apply-format-to-current-line ewoc store)
       (while (ewoc-next-line-or-nil ewoc)
         (azdev/apply-format-to-current-line ewoc store)))))
 
@@ -665,23 +690,23 @@ Widths are determined by parsing azdev/get-display-mapping."
 
 (defun filter-only-not-closed (data level)
   "Show only items that are not closed (based on work item DATA and LEVEL)."
-  (let* ((id (alist-get 'id data))
-         (label (alist-get 'title data))
-         (wi-type (alist-get 'work-item-type data))
-         (changed-time (alist-get 'changed-date data))
-         (wi-state (alist-get 'state data))
-         (assigned-to (alist-get 'assigned-to data)))
+  (let* ((id (azdev/get-field 'id data))
+         (label (azdev/get-field 'title data))
+         (wi-type (azdev/get-field 'work-item-type data))
+         (changed-time (azdev/get-field 'changed-date data))
+         (wi-state (azdev/get-field 'state data))
+         (assigned-to (azdev/get-field 'assigned-to data)))
     (not  (string= wi-state "Closed"))))
 
 
 (defun filter-open-or-recently-closed (data level)
   "Show only items that are not closed (based on work item DATA and LEVEL)."
-  (let* ((id (alist-get 'id data))
-         (label (alist-get 'title data))
-         (wi-type (alist-get 'work-item-type data))
-         (changed-time (alist-get 'changed-date data))
-         (wi-state (alist-get 'state data))
-         (assigned-to (alist-get 'assigned-to data))
+  (let* ((id (azdev/get-field 'id data))
+         (label (azdev/get-field 'title data))
+         (wi-type (azdev/get-field 'work-item-type data))
+         (changed-time (azdev/get-field 'changed-date data))
+         (wi-state (azdev/get-field 'state data))
+         (assigned-to (azdev/get-field 'assigned-to data))
          (check-time (azdev/pred/days-since-time 7)))
     (or (not  (string= wi-state "Closed"))
         (funcall check-time data))))
@@ -697,8 +722,13 @@ Widths are determined by parsing azdev/get-display-mapping."
 (defun azdev/id->printed-id (id level)
   (number-to-string id))
 
-(defun azdev/status-brackets (id level)
-  (concat "[" id "]"))
+(defun azdev/status-brackets (status level)
+  (concat "[" (s-pad-right 9 " " status) "]"))
+
+(defun azdev/new-line (id level)
+  "Inserts a new line"
+  "\n")
+
 
 (defun azdev/identity (id level)
   id)
@@ -718,19 +748,13 @@ Widths are determined by parsing azdev/get-display-mapping."
 
 (defun azdev/get-display-mapping (data)
   "Given a work item data, return specification of the columns of that work item."
-  (let* ((wi-type (alist-get 'work-item-type data))
+  (let* ((wi-type (azdev/get-field 'work-item-type data))
          (val (or (lax-plist-get azdev/map:work-item->display-string
                                  wi-type)
                   (lax-plist-get azdev/map:work-item->display-string
                                  nil))))
     (cond ((symbolp val) (eval val))
           val)))
-
-(defun azdev/indent-at-point (pos)
-  (or
-   (plist-get (text-properties-at pos)
-              'azdev-line-indent)
-   0))
 
 (defun azdev/add-text-props-to-string (props str)
   (let ((len (length str)))
@@ -745,7 +769,7 @@ The way to obtain columns is defined in azdev/string-for-task-display-mapping."
                    (mapcar
                     (-lambda ((col-name key length func))
                       (let* ((result (funcall func
-                                             (alist-get key data)
+                                             (azdev/get-field key data)
                                              level))
                             (str-length (if (< length 1)
                                             (- (length result) length)
@@ -765,7 +789,7 @@ The way to obtain columns is defined in azdev/string-for-task-display-mapping."
    (lambda (url)
      ;; loop over urls
      (let* ((response (azdev/get-request url))
-            (values (alist-get 'value response)))
+            (values (azdev/get-field 'value response)))
        (mapcar
         (lambda (value)
           (azdev/work-item-parse value))
@@ -779,7 +803,7 @@ The way to obtain columns is defined in azdev/string-for-task-display-mapping."
 
 (defun azdev/store/set-item (store item)
   "Add an ITEM into STORE."
-  (ht-set! azdev/wi-store (alist-get 'id item) item))
+  (azdev/store-add azdev/wi-store (azdev/get-field 'id item) item))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Remote URLs
@@ -816,18 +840,16 @@ The way to obtain columns is defined in azdev/string-for-task-display-mapping."
   "TODO: the store is accessed directly here"
   (let ((level (car ids+level))
         (id (cdr ids+level)))
-    (cond ((numberp level) (insert (azdev/string-for-work-item
-                                    (ht-get azdev/wi-store id) level)))
-          ;; When level is 'header
-          ((equal level 'header) (insert (alist-get 'title id))))))
+    (insert (azdev/string-for-work-item
+             (azdev/get-data azdev/wi-store id) level))))
 
 (defun azdevops/add-team-items-to-ewoc (ewoc store teams)
   "Print the lines for all TEAMS using insert."
   (mapc
    (lambda (team-name)
      (ewoc-enter-last ewoc
-                      `(header . ((title . ,team-name)
-                                  (work-item-type . header))))
+                      `(team . ((title . ,team-name)
+                                  (work-item-type . team))))
      (azdev/add-items-to-ewoc
       ewoc
       (azdev/team-work-item-id+level store team-name)))
@@ -871,10 +893,10 @@ The way to obtain columns is defined in azdev/string-for-task-display-mapping."
 function UPDATE-ITEM-F.
 UPDATE-ITEM-F take the item data, and return a list of changes."
   (-let* (((item-id . node) (azdev/ewoc-current-id+node ewoc))
-          (changes (funcall update-item-f (ht-get store item-id))))
+          (changes (funcall update-item-f (azdev/get-data store item-id))))
     (message (pp changes))
     (when changes
-      (ht-set! store item-id
+      (azdev/store-add store item-id
                (azdev/upload-changes-to-work-item item-id changes))
       (ewoc-invalidate ewoc node))))
 
@@ -894,7 +916,7 @@ UPDATE-ITEM-F take the item data, and return a list of changes."
 (defun azdev/local-key->devops-path (local-key)
   (azdev/source-path->devops-path
    (car
-    (alist-get local-key azdev/response-field-mappings))))
+    (azdev/get-field local-key azdev/response-field-mappings))))
 
 (defun azdev/spec-to-update-remote (field value operation)
   "Return DevOps API specification of an update to FIELD to VALUE with OPERATION.
@@ -1021,7 +1043,7 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
 
 (defun azdev/update-item/set-title (item)
   `((title ,(read-from-minibuffer "Title: "
-                                    (alist-get 'title item)))))
+                                    (azdev/get-field 'title item)))))
 
 (defun azdev/set-current-item-state--new ()
   (interactive)
