@@ -50,8 +50,8 @@
 ;; (defvar azdev/work-item-show-filter 'filter-nothing)
 
 (defvar azdev/task-display-mapping
-  `(("ID" id 10 ,#'azdev/id->printed-id)
-    ("Title" title 50 ,#'azdev/title-with-indent)
+  `(("ID" id 7 ,#'azdev/id->printed-id)
+    ("Title" title 50 ,#'azdev/string-with-indent)
     ("Status" state 10 ,#'azdev/identity)
     ("Updated" changed-date 13 ,(lambda (time level) (format-time-string "%Y-%m-%d" time)))
     ("Assigned To" assigned-to 20 ,(lambda (name level) (or name "---------------"))))
@@ -64,9 +64,9 @@ The dynamic scopre variable *level* is also set in the function scope.
 ")
 
 (defvar azdev/epic-feature-display-mapping
-  `(("ID" id 10 ,#'azdev/id->printed-id)
-    ("Status" state -1 ,#'azdev/status-brackets)
-    ("Title" title 40 ,#'azdev/title-with-indent))
+  `(("ID" id 7 ,#'azdev/id->printed-id)
+    ("Title" title 80 ,#'azdev/string-with-indent)
+    ("Status" state -1 ,#'azdev/status-brackets))
   "List of mappings to obtain string for each column.
 Each entry is of the form:
  (column-name field-in-data column-width transform-function)
@@ -75,23 +75,27 @@ work item data, and returns the string to display.
 Negative numbers from column size denote the padding to the RHS of the string.
 ")
 
+(defvar azdev/heading-display-mapping
+  '(("Title" string 0 ,#'azdev/identity)))
+
 (defvar azdev/map:work-item->display-string
   (list "Development Task" 'azdev/task-display-mapping
         "Admin Task" 'azdev/task-display-mapping
         "Epic" 'azdev/epic-feature-display-mapping
         "Feature" 'azdev/epic-feature-display-mapping
+        'heading 'azdev/heading-display-mapping
         nil 'azdev/task-display-mapping)
   "Property list that specifies for each type of work item, the list of
 columns to display.
 Entry with key nil specifies the default entry.")
 
 (defvar azdev/formatting-faces
-  '("Development Task" (azdev-dev-task (azdev/id-std-font nil azdev/format-status))
-    "Admin Task" (azdev-admin-task (azdev/id-std-font nil azdev/format-status))
-    "Epic" (azdev-epic (azdev/id-std-font))
-    "Feature" (azdev-feature (azdev/id-std-font))
-    "Meeting" (azdev-meeting (azdev/id-std-font))
-    "Meeting attendance" (azdev-meeting (azdev/id-std-font))
+  '("Development Task" (azdev-dev-task (azdev/no-font azdev/id-std-font nil azdev/format-status))
+    "Admin Task" (azdev-admin-task (azdev/no-font azdev/id-std-font nil azdev/format-status))
+    "Epic" (azdev-epic (azdev/no-font azdev/id-std-font))
+    "Feature" (azdev-feature (azdev/no-font azdev/id-std-font))
+    "Meeting" (azdev-meeting (azdev/no-font azdev/id-std-font))
+    "Meeting attendance" (azdev-meeting (azdev/no-font azdev/id-std-font))
     )
   "Definitions of how to format rows/columns.
 First element is the face to use for the row.
@@ -464,7 +468,7 @@ PRED is a function which takes an item."
 (defface azdev-epic
   `((,azdev/88-cols
      :foreground "white"
-     :height 1.5
+     :height 1.0
      :background "#FF7B00"
      :weight ultra-bold)
     (default
@@ -477,7 +481,7 @@ PRED is a function which takes an item."
   `((,azdev/88-cols
      :foreground "white"
      :background "#773B93"
-     :height 1.2
+     :height 1.0
      :weight bold)
     (default
       :foreground "white"
@@ -530,7 +534,7 @@ PRED is a function which takes an item."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Line utility functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (defun azdev/line-start-to-next-line ()
   "Return a cons pair (start . end) with character position of this line
 and the start of the next line (end of this line + 1)."
@@ -541,6 +545,12 @@ and the start of the next line (end of this line + 1)."
            (progn (end-of-line)
                   (+ 1 (point)))
            (point-max)))))
+
+(defun azdev/ewoc-level-current-line (ewoc)
+  "Get the ID of the work item on the current line"
+  (car
+   (ewoc-data
+    (ewoc-locate ewoc))))
 
 (defun azdev/ewoc-id-current-line (ewoc)
   "Get the ID of the work item on the current line"
@@ -563,7 +573,11 @@ to apply to the region."
          (color (lax-plist-get azdev/state-colours state)))
     (if color
         (azdev/overlay-face-props start end `((foreground-color . ,color)
-                                     (weight . bold))))))
+                                              (weight . bold))))))
+
+(defun azdev/no-font (data start end)
+  "Sets font height to 1"
+  (remove-text-properties start end '(face)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Formatting functions
@@ -675,13 +689,13 @@ Widths are determined by parsing azdev/get-display-mapping."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Printing utility functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defun azdev/title-with-indent (title level)
+(defun azdev/string-with-indent (title level)
   (concat
    (s-repeat (azdev/indent-length level) " ")
    title))
 
 (defun azdev/id->printed-id (id level)
-  (concat "|" (number-to-string id) "| "))
+  (number-to-string id))
 
 (defun azdev/status-brackets (id level)
   (concat "[" id "]"))
@@ -694,7 +708,7 @@ Widths are determined by parsing azdev/get-display-mapping."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun azdev/indent-length (level)
-  (+ 1 (* 4 (- level 2))))
+  (+ 1 (* 4 level)))
 
 (defun azdev/team-work-item-id+level (store team-name)
   "Get (level . id) cons pairs for items to show."
@@ -805,14 +819,15 @@ The way to obtain columns is defined in azdev/string-for-task-display-mapping."
     (cond ((numberp level) (insert (azdev/string-for-work-item
                                     (ht-get azdev/wi-store id) level)))
           ;; When level is 'header
-          ((equal level 'header) (insert id)))))
+          ((equal level 'header) (insert (alist-get 'title id))))))
 
 (defun azdevops/add-team-items-to-ewoc (ewoc store teams)
   "Print the lines for all TEAMS using insert."
   (mapc
    (lambda (team-name)
      (ewoc-enter-last ewoc
-                      `(header . ,team-name))
+                      `(header . ((title . ,team-name)
+                                  (work-item-type . header))))
      (azdev/add-items-to-ewoc
       ewoc
       (azdev/team-work-item-id+level store team-name)))
