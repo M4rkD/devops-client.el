@@ -65,8 +65,8 @@ The dynamic scopre variable *level* is also set in the function scope.
 
 (defvar azdev/epic-feature-display-mapping
   `(("ID" id 10 ,#'azdev/id->printed-id)
-    ("Title" title 40 ,#'azdev/title-with-indent)
-    ("Status" state 10 ,#'azdev/status-brackets))
+    ("Status" state -1 ,#'azdev/status-brackets)
+    ("Title" title 40 ,#'azdev/title-with-indent))
   "List of mappings to obtain string for each column.
 Each entry is of the form:
  (column-name field-in-data column-width transform-function)
@@ -659,7 +659,7 @@ Widths are determined by parsing azdev/get-display-mapping."
   (concat "|" (number-to-string id) "| "))
 
 (defun azdev/status-brackets (id level)
-  (concat "(" id ")"))
+  (concat "[" id "]"))
 
 (defun azdev/identity (id level)
   id)
@@ -705,11 +705,15 @@ The way to obtain columns is defined in azdev/string-for-task-display-mapping."
             (apply #'concat
                    (mapcar
                     (-lambda ((col-name key length func))
-                      (s-truncate length
-                                  (s-pad-right length " "
-                                               (funcall func
-                                                        (alist-get key data)
-                                                        level))))
+                      (let* ((result (funcall func
+                                             (alist-get key data)
+                                             level))
+                            (str-length (if (< length 1)
+                                            (- (length result) length)
+                                      length)))
+                        (s-truncate str-length
+                                    (s-pad-right str-length " "
+                                                 result))))
                     display-mapping))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
