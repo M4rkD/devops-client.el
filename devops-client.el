@@ -573,7 +573,7 @@ Widths are determined by parsing azdev/get-display-mapping."
        (point-max)))
 
 
-(defun azdev/format-range-from-work-item-type (data start end)
+(defun azdev/format-range-from-work-item-type (id data start end)
   (-let* ((wi-type (alist-get 'work-item-type data))
           ((default-face column-faces) (lax-plist-get azdev/formatting-faces wi-type))
           (item-column-ranges (azdev/get-column-ranges-for-item data))
@@ -599,9 +599,8 @@ Widths are determined by parsing azdev/get-display-mapping."
   "Call format-func passing start of line and start of next line as arguments"
   (-let* (((start . end) (azdev/line-start-to-next-line))
           (id (azdev/ewoc-id-current-line ewoc))
-          (data (ht-get store id))
-          (wi-type (alist-get 'work-item-type data)))
-    (azdev/format-range-from-work-item-type data start end)))
+          (data (ht-get store id)))
+    (azdev/format-range-from-work-item-type id data start end)))
 
 (defun devops-format (ewoc store)
   (save-excursion
