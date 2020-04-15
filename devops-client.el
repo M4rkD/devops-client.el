@@ -714,24 +714,6 @@ The way to obtain columns is defined in azdev/string-for-task-display-mapping."
                     display-mapping))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Modifying the ids list
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(cl-defun azdev/insert-blank-before-matching-line (store ids+level &optional (num-lines 1) (comp-values (list "Epic")))
-  (mapcan
-   (-lambda ((level . id))
-     (let* ((data (ht-get store id))
-            (wi-type (alist-get 'work-item-type data)))
-       (if (-contains? comp-values wi-type)
-           (append (make-list num-lines
-                              '(blank-line))
-                   (list
-                    (cons level id)))
-         (list
-          (cons level id)))))
-   ids+level))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Fetching and storing work items
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -795,9 +777,7 @@ The way to obtain columns is defined in azdev/string-for-task-display-mapping."
     (cond ((numberp level) (insert (azdev/string-for-work-item
                                     (ht-get azdev/wi-store id) level)))
           ;; When level is 'header
-          ((equal level 'header) (insert id))
-          ;; When level is 'blank-line
-          ((equal level 'blank-line) (insert "\n")))))
+          ((equal level 'header) (insert id)))))
 
 (defun azdevops/add-team-items-to-ewoc (ewoc store teams)
   "Print the lines for all TEAMS using insert."
@@ -807,9 +787,7 @@ The way to obtain columns is defined in azdev/string-for-task-display-mapping."
                       `(header . ,team-name))
      (azdev/add-items-to-ewoc
       ewoc
-      (azdev/insert-blank-before-matching-line
-       store
-       (azdev/team-work-item-id+level store team-name))))
+      (azdev/team-work-item-id+level store team-name)))
    teams))
 
 (cl-defun azdev/add-items-to-ewoc (ewoc ids+level)
