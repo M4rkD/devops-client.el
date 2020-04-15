@@ -75,7 +75,7 @@ If item ID is not a number, then it's probably already an item. In which case, r
     ("Title" title 50 ,#'azdev/string-with-indent)
     ("Status" state 13 ,#'azdev/status-brackets)
     ("Updated" changed-date 13 ,(lambda (time level) (format-time-string "%Y-%m-%d" time)))
-    ("Assigned To" assigned-to 20 ,(lambda (name level) (or name "---------------"))))
+    ("Assigned To" assigned-to 20 ,#'azdev/assigned-to-string))
   "List of mappings to obtain string for each column.
 Each entry is of the form:
  (column-name field-in-data column-width transform-function)
@@ -131,6 +131,8 @@ the work item data, the start position of the column, and the end position.")
                               "Active" "red")
   "Colours for colouring each state text.")
 
+(defvar azdev/user-aliases '())
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Tokens
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -140,7 +142,7 @@ the work item data, the start position of the column, and the end position.")
   (with-temp-buffer
     (insert-file-contents azdev/token-file-path)
     (s-trim
-    (buffer-string))))
+     (buffer-string))))
 
 (defun azdev/read-token ()
   (setq azdev/auth-token (azdev/load-token)))
@@ -759,9 +761,11 @@ Widths are determined by parsing azdev/get-display-mapping."
   "Inserts a new line"
   "\n")
 
-
 (defun azdev/identity (id level)
   id)
+
+(defun azdev/assigned-to-string (name level)
+  (or (lax-plist-get azdev/user-aliases name) name ""))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Printing
