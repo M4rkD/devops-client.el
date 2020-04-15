@@ -72,6 +72,7 @@ Each entry is of the form:
  (column-name field-in-data column-width transform-function)
 Tranform is a function which takes in the value of key field-in-data of
 work item data, and returns the string to display.
+Negative numbers from column size denote the padding to the RHS of the string.
 ")
 
 (defvar azdev/map:work-item->display-string
@@ -456,50 +457,74 @@ PRED is a function which takes an item."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Faces
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defconst azdev/88-cols '((class color) (min-colors 88) (background light)))
 
 (defface azdev-epic
-  '((default :foreground "white"
-      :height 1.5
-      :background "#FF7B00"
-      :weight ultra-bold))
-       "Basic face for highlighting."
-       :group 'azdev-faces)
+  `((,azdev/88-cols
+     :foreground "white"
+     :height 1.5
+     :background "#FF7B00"
+     :weight ultra-bold)
+    (default
+      :background "red"
+      :foreground "white"))
+  "Basic face for highlighting."
+  :group 'azdev-faces)
 
 (defface azdev-feature
-  '((default :foreground "white"
-      :background "#773B93"
-      :height 1.2
-      :weight bold))
+  `((,azdev/88-cols
+     :foreground "white"
+     :background "#773B93"
+     :height 1.2
+     :weight bold)
+    (default
+      :foreground "white"
+      :background "magenta"))
   " Basic face for highlighting. "
 :group 'azdev-faces)
 
 (defface azdev-dev-task
-  '((default :foreground "black"
-      :background "#FBD144"))
+  `((,azdev/88-cols
+     :foreground "black"
+     :background "#FBD144")
+    (default
+      :background "white"
+      :fooreground "yellow"))
        "Basic face for highlighting."
        :group 'azdev-faces)
 
 (defface azdev-admin-task
-  '((default :foreground "white"
-      :background "#0D60AB"))
+  `((,azdev/88-cols :foreground "white"
+                    :background "#0D60AB")
+    (default
+      :fooreground "default"))
        "Basic face for highlighting."
        :group 'azdev-faces)
 
 (defface azdev-meeting
-  '((default :foreground "black"
-      :background "cornsilk"))
+  `((,azdev/88-cols :foreground "black"
+                    :background "cornsilk")
+    (default
+      :background "white"
+      :foreground "black"))
   "Basic face for highlighting. "
 :group 'azdev-faces)
 
 (defface azdev-heading
-  '((default
-      :background "default"
-      :height 3.0))
+  `((,azdev/88-cols
+     :background "default"
+     :height 3.0)
+    (default
+      :fooreground "default"))
        "Basic face for highlighting."
        :group 'azdev-faces)
 
 (defface azdev-id-font
-  '((default :height 130))
+  `((,azdev/88-cols :height 130)
+    (default
+      :fooreground "default"))
   "Basic face for highlighting."
        :group 'azdev-faces)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
