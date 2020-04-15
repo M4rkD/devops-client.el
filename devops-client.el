@@ -569,8 +569,9 @@ PRED is a function which takes an item."
       :fooreground "default"))
   "Basic face for highlighting."
        :group 'azdev-faces)
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Line utility functions
+;; Ewoc node utility functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun azdev/current-ewoc-node-bounds (ewoc)
@@ -593,6 +594,12 @@ and the start of the next line (end of this line + 1)."
   (cdr
    (ewoc-data
     (ewoc-locate ewoc))))
+
+(defun azdev/ewoc-data-current-line (ewoc store)
+  "Get the data of the work item on the current line"
+  (azdev/get-data
+   store
+   (azdev/ewoc-id-current-line ewoc)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Column formatting functions
@@ -1109,6 +1116,20 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
    azdev/wi-store
    #'azdev/update-item/set-state-active))
 
+(defun azdev/set-current-item-state--cycle ()
+  (interactive)
+  (let* ((data
+          (azdev/ewoc-data-current-line azdev/wi-ewoc azdev/wi-store))
+         (state (azdev/get-field 'state data))
+         (mappings (list "New" #'azdev/update-item/set-state-active
+                         "Active" #'azdev/update-item/set-state-closed
+                         "Closed" #'azdev/update-item/set-state-new))
+         (next (lax-plist-get mappings state)))
+    (azdev/apply-updates-current-ewoc-item
+     azdev/wi-ewoc
+     azdev/wi-store
+     next)))
+
 (defun azdev/set-current-item-title ()
   (interactive)
   (azdev/apply-updates-current-ewoc-item
@@ -1141,6 +1162,8 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
   (evil-local-set-key 'normal "a" 'azdev/set-current-item-state--active) ; Set active state
   (evil-local-set-key 'normal "n" 'azdev/set-current-item-state--new)    ; "Set new
   (evil-local-set-key 'normal "c" 'azdev/set-current-item-state--closed) ; "Set closed state"
+  (evil-local-set-key 'normal (kbd "<tab>") 'azdev/set-current-item-state--cycle) ; "Set closed state"
+  (evil-local-set-key 'normal (kbd "TAB") 'azdev/set-current-item-state--cycle) ; "Set closed state"
   (evil-local-set-key 'normal "t" 'azdev/set-current-item-title)         ; Set title
   (evil-local-set-key 'normal "i" 'azdev/fetch-current-id)               ; Print id
   (evil-local-set-key 'normal "v" 'azdev/visit-current-item-www)         ; Visit
