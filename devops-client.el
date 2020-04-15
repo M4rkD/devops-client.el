@@ -51,7 +51,7 @@
 
 (defvar azdev/task-display-mapping
   `(("ID" id 10 ,#'azdev/id->printed-id)
-    ("Title" title 40 ,#'azdev/identity)
+    ("Title" title 40 ,#'azdev/title-with-indent)
     ("Status" state 10 ,#'azdev/identity)
     ("Assigned To" assigned-to 15 ,(lambda (name level) (or name "---------------")))
     ("Type" work-item-type 15 ,#'azdev/identity)
@@ -66,8 +66,8 @@ The dynamic scopre variable *level* is also set in the function scope.
 
 (defvar azdev/epic-feature-display-mapping
   `(("ID" id 10 ,#'azdev/id->printed-id)
-    ("Title" title 40 ,#'azdev/identity)
-    ("Status" state 10 ,#'azdev/identity))
+    ("Title" title 40 ,#'azdev/title-with-indent)
+    ("Status" state 10 ,#'azdev/status-brackets))
   "List of mappings to obtain string for each column.
 Each entry is of the form:
  (column-name field-in-data column-width transform-function)
@@ -86,12 +86,12 @@ columns to display.
 Entry with key nil specifies the default entry.")
 
 (defvar azdev/formatting-faces
-  '("Development Task" (azdev-dev-task (nil nil azdev/format-status))
-    "Admin Task" (azdev-admin-task (nil nil azdev/format-status))
-    "Epic" (azdev-epic (azdev/normal-height-font))
-    "Feature" (azdev-feature (azdev/normal-height-font))
-    "Meeting" (azdev-meeting nil)
-    "Meeting attendance" (azdev-meeting nil)
+  '("Development Task" (azdev-dev-task (azdev/id-std-font nil azdev/format-status))
+    "Admin Task" (azdev-admin-task (azdev/id-std-font nil azdev/format-status))
+    "Epic" (azdev-epic (azdev/id-std-font))
+    "Feature" (azdev-feature (azdev/id-std-font))
+    "Meeting" (azdev-meeting (azdev/id-std-font))
+    "Meeting attendance" (azdev-meeting (azdev/id-std-font))
     )
   "Definitions of how to format rows/columns.
 First element is the face to use for the row.
@@ -460,7 +460,7 @@ PRED is a function which takes an item."
 
 (defface azdev-epic
   '((default :foreground "white"
-      :height 2.5
+      :height 1.5
       :background "#FF7B00"
       :weight ultra-bold))
        "Basic face for highlighting."
@@ -499,6 +499,10 @@ PRED is a function which takes an item."
        "Basic face for highlighting."
        :group 'azdev-faces)
 
+(defface azdev-id-font
+  '((default :height 130))
+  "Basic face for highlighting."
+       :group 'azdev-faces)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Line utility functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -523,9 +527,9 @@ and the start of the next line (end of this line + 1)."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Column formatting functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defun azdev/normal-height-font (data start end)
+(defun azdev/id-std-font (data start end)
   "Sets font height to 1"
-  (azdev/overlay-face-props start end `(height . (/ 1.0 2.5))))
+  (azdev/overlay-face-props start end 'azdev-id-font))
 
 (defun azdev/format-status (data start end)
   "Function used to format the `status` column.
@@ -648,9 +652,16 @@ Widths are determined by parsing azdev/get-display-mapping."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Printing utility functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defun azdev/title-with-indent (title level)
+  (concat
+   (s-repeat (azdev/indent-length level) " ")
+   title))
 
 (defun azdev/id->printed-id (id level)
   (concat "|" (number-to-string id) "| "))
+
+(defun azdev/status-brackets (id level)
+  (concat "(" id ")"))
 
 (defun azdev/identity (id level)
   id)
@@ -660,7 +671,7 @@ Widths are determined by parsing azdev/get-display-mapping."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun azdev/indent-length (level)
-  (+ 1 (* 4 level)))
+  (+ 1 (* 4 (- level 2))))
 
 (defun azdev/team-work-item-id+level (store team-name)
   "Get (level . id) cons pairs for items to show."
