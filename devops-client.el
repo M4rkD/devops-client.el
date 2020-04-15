@@ -8,7 +8,7 @@
 ;; Modified: March 23, 2020
 ;; Version: 0.0.1
 ;; Keywords:
-;; Homepage: https://github.com/mark/devops-client.el
+;; Homepage: https://github.com/M4rkD/devops-client.el
 ;; Package-Requires: ((emacs 26.3) (cl-lib "0.5"))
 ;;
 ;; This file is not part of GNU Emacs.

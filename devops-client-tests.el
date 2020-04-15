@@ -2,13 +2,13 @@
 ;;
 ;; Copyright (C) 2020 mark
 ;;
-;; Author: mark <http://github/mark>
-;; Maintainer: mark <mark@mark-Surface-Book>
+;; Author: mark <http://github/M4rkD>
+;; Maintainer: Mark Dawson
 ;; Created: April 08, 2020
 ;; Modified: April 08, 2020
 ;; Version: 0.0.1
 ;; Keywords:
-;; Homepage: https://github.com/mark/devops-client-tests
+;; Homepage: https://github.com/M4rkD/devops-client-tests
 ;; Package-Requires: ((emacs 26.3) (cl-lib "0.5"))
 ;;
 ;; This file is not part of GNU Emacs.
