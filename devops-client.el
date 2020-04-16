@@ -64,7 +64,9 @@ If item ID is not a number, then it's probably already an item. In which case, r
 
 (defvar azdev/base-url (format "https://dev.azure.com/swansea-university/%s/_apis"
                                azdev/default-project)
-  "The base url of the organisation.")
+  "The base url for api requests.
+Note that for creating items, this needs to have a default project.
+For other operations, leaving out the azdev/default-project segment seems to work.")
 
 (defvar azdev/query-chunk-size 200
   "The maximum number of work items to fetch in one go.")
@@ -188,29 +190,30 @@ Otherwise return the RESPONSE, unchanged."
 (defun azdev/dispatch-patch-request (uri data)
   (azdev/--dispatch-request uri "PATCH" data))
 
-(defun azdev/--dispatch-request (uri method data)
+(cl-defun azdev/--dispatch-request (uri method data &optional (content-type "application/json"))
   "Dispatch request to endpoint URI (with json parsing) and METHOD.
 Return parsed json data as an alist.
+Note that PATCH requests are always sent with a content type of \
+application/json-patch+json,regardless of value of content-type specified.
 METHOD should be a string such as \"GET\" or \"POST\""
   (let* ((url (concat azdev/base-url uri))
-         (content-type (if (or (string= method "PATCH")
-                               (string= method "POST"))
+         (content-type (if (string= method "PATCH")
                            "application/json-patch+json"
-                         "application/json")))
+                         content-type)))
     (message "Calling: [%S] %s" method url)
     (let* ((response (if data
-                        (request
-                          url
-                          :type method
-                          :headers (default-headers content-type)
-                          :sync t
-                          :data (json-encode data))
-                      (request
-                        url
-                        :type method
-                        :headers (default-headers content-type)
-                        :sync t)))
-          (status (request-response-status-code response)))
+                         (request
+                           url
+                           :type method
+                           :headers (default-headers content-type)
+                           :sync t
+                           :data (json-encode data))
+                       (request
+                         url
+                         :type method
+                         :headers (default-headers content-type)
+                         :sync t)))
+           (status (request-response-status-code response)))
 
       ;; set the last response globally for ease of debugging
       (setq azdev/last-response response)
@@ -219,7 +222,15 @@ METHOD should be a string such as \"GET\" or \"POST\""
       (if (= status 200)
           (json-read-from-string
            (request-response-data response))
-        (error "request failed: response set to azdev/last-response")))))
+        (user-error "Request failed: " (azdev/extract-message-from-error-response response)
+               " See azdev/last-response variable for more detail.")))))
+
+(defun azdev/extract-message-from-error-response (response)
+  "Extract the message from a JSON devops error response"
+  (alist-get 'message
+             (json-read-from-string
+              (request-response-data
+               response))))
 
 (defun azdev/handle-request-error (request)
   "Default handler for errors in the request to devops server."
@@ -886,11 +897,13 @@ The way to obtain columns is defined in azdev/string-for-task-display-mapping."
 ;;; Remote URLs
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun azdev/id->relation-url (item-id)
-  "Return the URL of a work item given the ITEM-ID."
+(defun azdev/id->relation-url (id-or-data)
+  "Return the URL of a work item for item ID-OR-DATA.
+ID-OR-DATA is either an item ID or an alist containing \
+field id."
   (concat
    "https://dev.azure.com/swansea-university/Swansea Academy of Advanced Computing/_workitems/edit/"
-   (number-to-string item-id)))
+   (number-to-string (azdev/id-or-data->id id-or-data))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; High-level functions
@@ -1044,7 +1057,7 @@ If operation is not provided, it defaults to replace"
             (azdev/spec-to-update-remote field value (or operation "replace")))
           changes)))
 
-(cl-defun azdev/apply-server-changes (work-item-id changes &optional (method "POST") )
+(cl-defun azdev/apply-server-changes (work-item-id changes &optional (method "PATCH") (content-type "application/json-patch+json"))
   "Apply CHANGES to work item with WORK-ITEM-ID.
 Return the new parsed work item.
 CHANGES is as specified in azdev/multi-spacs-to-update-remote"
@@ -1053,7 +1066,8 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
                               "/wit/workitems/%s?api-version=5.1&$expand=All&bypassRules=true"
                               work-item-id)
                              method
-                             (azdev/multi-specs-to-update-remote changes))))
+                             (azdev/multi-specs-to-update-remote changes)
+                             content-type)))
 
 (defun azdev/spec-area-path (area-path)
   "Devops JSON specification for operation to set the AREA PATH."
@@ -1076,6 +1090,15 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
     ((rel . "System.LinkTypes.Hierarchy-Forward")
      (url .  ,(azdev/id->relation-url child-id)))
     "add"))
+
+(defun azdev/delete-work-item (store id-or-data)
+  "Deleted the work item ID-OR-DATA from server and STORE."
+  (let ((id (azdev/id-or-data->id store id-or-data)))
+    (azdev/apply-server-changes
+     id
+     nil
+     "DELETE")
+    (ht-remove! store id)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Interactive functions
@@ -1250,7 +1273,7 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
              (child-id (azdev/id-or-data->id azdev/wi-store item))
              (parent-node
               (azdev/ewoc-get-node-by-id azdev/wi-ewoc parent-id))
-             ((level . id) (ewoc-data parent-node)))
+             (((+ 1 level) . id)  (ewoc-data parent-node)))
 
         (ewoc-enter-after
          azdev/wi-ewoc
