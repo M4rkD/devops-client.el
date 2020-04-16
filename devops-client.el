@@ -679,13 +679,13 @@ and the start of the next line (end of this line + 1)."
 
 (defun azdev/ewoc-level-current-line (ewoc)
   "Get the ID of the work item on the current line"
-  (car
+  (azdev/rowref-level
    (ewoc-data
     (ewoc-locate ewoc))))
 
 (defun azdev/ewoc-id-current-line (ewoc)
   "Get the ID of the work item on the current line"
-  (cdr
+  (azdev/rowref-id
    (ewoc-data
     (ewoc-locate ewoc))))
 
@@ -1245,6 +1245,10 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
 ;;; Interactive functions to bind to keys
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defun azdev/quit ()
+  (interactive)
+  (kill-buffer azdev/buffer))
+
 (defun azdev/next-entry ()
   (interactive)
   (azdev/ewoc-next-line-or-nil azdev/wi-ewoc))
@@ -1423,6 +1427,7 @@ the correct area path for child."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun setup-evil-keybindings ()
+  (evil-local-set-key 'normal "q" 'azdev/quit)
   (evil-local-set-key 'normal "j" 'azdev/next-entry)
   (evil-local-set-key 'normal "C" 'azdev/add-item)
   (evil-local-set-key 'normal "d" 'azdev/remove-item)
