@@ -55,12 +55,35 @@ If item ID is not a number, then it's probably already an item. In which case, r
       id-or-data
     (azdev/get-field 'id id-or-data)))
 
-(defun azdev/create-ewoc-data (id level)
-  (if (and (numberp id)
-           (numberp level))
-      (cons id level)
-    (error "id should be a number")))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Ewoc data abstraction
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defun azdev/rowref-level (row-ref)
+  (plist-get row-ref 'level))
+
+(defun azdev/rowref-data (row-ref &optional store)
+  (if-let ((data (plist-get row-ref 'data)))
+      data
+    (if store
+        (azdev/get-data store (azdev/rowref-id row-ref))
+      nil)))
+
+(defun azdev/rowref-id (row-ref &optional store)
+  (plist-get row-ref 'id))
+
+(defun azdev/rowref-create (id level &optional data)
+  (if (or (not id) (numberp id))
+      (list 'id id 'level level 'data data)
+    (error "id should be a number or nil")))
+
+(defun azdev/rowrefs-create-multiple (spec)
+  "Spec is a list of lists, each of the sub lists
+being arguments to azdev/rowref-create "
+  (mapcar
+   (-lambda (args)
+     (apply #'azdev/rowref-create args))
+   spec))
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Variables
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -542,10 +565,15 @@ PRED is a function which takes an item."
     (if data
         (if children
           (-reduce-from (lambda (acc-child child-node-id)
-                          (append acc-child (azdev/walk-tree store child-node-id (+ level 1))))
-                        (append acc (list (cons level curr-node-id))) ;; inital value
+                          (append acc-child
+                                  (azdev/walk-tree store
+                                                   child-node-id
+                                                   (+ level 1))))
+                        (append acc
+                                (list (azdev/rowref-create curr-node-id
+                                                           level))) ;; inital value
                         children)
-          (list (cons level curr-node-id)))
+          (list (azdev/rowref-create curr-node-id level)))
       nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -775,6 +803,7 @@ Widths are determined by parsing azdev/get-display-mapping."
     (if (= curr (point))
         nil
       t)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Filtering functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -838,7 +867,7 @@ Widths are determined by parsing azdev/get-display-mapping."
 (defun azdev/indent-length (level)
   (+ 1 (* 4 level)))
 
-(defun azdev/team-work-item-id+level (store team-name)
+(defun azdev/team-work-item-rowref (store team-name)
   "Get (level . id) cons pairs for items to show."
   (mapcan (lambda (epic-id)
             (azdev/walk-tree store epic-id))
@@ -936,12 +965,11 @@ field id."
 ;;; Creating ewoc
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun azdev/ewoc-printer (ids+level)
+(defun azdev/ewoc-printer (row-ref)
   "TODO: the store is accessed directly here"
-  (let* ((level (car ids+level))
-        (id (cdr ids+level))
-        (data (azdev/get-data azdev/wi-store id))
-        (start (point)))
+  (let* ((level (azdev/rowref-level row-ref))
+         (data (azdev/rowref-data row-ref azdev/wi-store))
+         (start (point)))
 
     (insert (concat (azdev/string-for-work-item data level)
                     "\n"))
@@ -953,19 +981,22 @@ field id."
   (mapc
    (lambda (team-name)
      (ewoc-enter-last ewoc
-                      `(team . ((title . ,team-name)
-                                  (work-item-type . team))))
+                      (azdev/rowref-create
+                       nil
+                       0
+                       `((title . ,team-name)
+                        (work-item-type . team))))
      (azdev/add-items-to-ewoc
       ewoc
-      (azdev/team-work-item-id+level store team-name)))
+      (azdev/team-work-item-rowref store team-name)))
    teams))
 
-(cl-defun azdev/add-items-to-ewoc (ewoc ids+level)
-  "Prints the provided item IDS from STORE."
+(cl-defun azdev/add-items-to-ewoc (ewoc rowref)
+  "Prints the provrowref"
   (mapc
-   (lambda (id+level)
-     (ewoc-enter-last ewoc id+level))
-   ids+level))
+   (lambda (rowref)
+     (ewoc-enter-last ewoc rowref))
+   rowref))
 
 (defun azdev/create-teams-ewoc! (store teams)
   (with-current-buffer azdev/buffer
@@ -990,11 +1021,13 @@ field id."
     (cons id node )))
 
 (defun azdev/ewoc-current-id (ewoc)
-  (car (azdev/ewoc-current-id+node ewoc)))
+  (azdev/rowref-id (azdev/ewoc-current-id+node ewoc)))
 
 (defun azdev/ewoc-all-ids (ewoc)
   "Returns a list of all ids in EWOC, in the order they appear in the buffer."
-  (mapcar #'cdr (ewoc-collect ewoc (lambda (v) t))))
+  (mapcar
+   #'azdev/rowref-id
+   (ewoc-collect ewoc (lambda (v) t))))
 
 (defun azdev/ewoc-get-node-by-id (ewoc id)
   (ewoc-nth ewoc (-elem-index id (azdev/ewoc-all-ids azdev/wi-ewoc))))
@@ -1297,8 +1330,8 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
         (ewoc-enter-after
          azdev/wi-ewoc
          parent-node
-         (azdev/create-ewoc-data
-          (+ 1 level) child-id)))))
+         (azdev/rowref-create
+          child-id (+ 1 level))))))
 
 (defun azdev/remove-item ()
   "Select a work item to delete."

@@ -75,23 +75,25 @@ or a single number to indicate a node with no children. "
                                                   1
                                                   2))
               10)
-                 '((0 . 10)
-                   (1 . 1)
-                   (1 . 2)))))
+                 (azdev/rowrefs-create-multiple
+                  '((10 0)
+                    (1 1)
+                    (2 1))))))
 
 (ert-deftest azdev/test-walk-tree--two-level-two-items ()
   "Should only follow path from parent."
   (should (equal (azdev/walk-tree
-              (azdev-test/create-store-children '((10 (1 2))
-                                                  1
-                                                  2
-                                                  (11 (3 4 5))
-                                                  3 4
-                                                  5))
-              10)
-                 '((0 . 10)
-                   (1 . 1)
-                   (1 . 2)))))
+                  (azdev-test/create-store-children '((10 (1 2))
+                                                      1
+                                                      2
+                                                      (11 (3 4 5))
+                                                      3 4
+                                                      5))
+                  10)
+              (azdev/rowrefs-create-multiple
+               '((10 0)
+                 (1 1)
+                 (2 1))))))
 
 (ert-deftest azdev/test-walk-tree--two-level-two-items-connected ()
   "Should only follow path from parent."
@@ -108,13 +110,14 @@ or a single number to indicate a node with no children. "
                                                   7
                                                   8))
               10)
-                 '((0 . 10)
-                   (1 . 1 )
-                   (1 . 2 )
-                   (1 . 11)
-                   (2 . 3 )
-                   (2 . 4 )
-                   (2 . 5)))))
+                 (azdev/rowrefs-create-multiple
+                  '((10 0)
+                    (1 1 )
+                    (2 1 )
+                    (11 1)
+                    (3 2 )
+                    (4 2 )
+                    (5 2))))))
 
 (defun azdev-test/create-store-with-items (items)
   "Create store from list of item cons pairs (item-id . list-item-children-ids).
@@ -194,51 +197,24 @@ Use azdev-test/item! to create the items."
   "Walk tree should return depth first list of epics, featuresghbn nand tasks."
    (should (equal
             (azdev/walk-tree (azdev-test/mock-store) 100)
-            '((0 . 100)
-              (1 . 11)
-              (2 . 1)
-              (2 . 2)
-              (1 . 12)
-              (2 . 3)
-              (2 . 4)))))
+            (azdev/rowrefs-create-multiple
+             '((100 0) (11 1) (1 2) (2 2) (12 1) (3 2) (4 2))))))
 
 (ert-deftest test-print-from-teams-list-of-strings ()
   "team-work-item-id+level should return list LEVEL . ID cons pairs"
-  (should (equal (azdev/team-work-item-id+level
+  (should (equal (azdev/team-work-item-rowref
                   (azdev-test/mock-store)
                   azdev-test/mock-store--team-name)
-                 '((0 . 100) (1 . 11) (2 . 1) (2 . 2) (1 . 12) (2 . 3) (2 . 4)))))
+                 (azdev/rowrefs-create-multiple
+                  '((100 0) (11 1) (1 2) (2 2) (12 1) (3 2) (4 2))))))
 
-(ert-deftest test-insert-blank-line-before-epics ()
-  "Inserts blank before Epic entries by default"
-  (let* ((store (azdev-test/mock-store))
-         (ids+level (azdev/team-work-item-id+level
-                     store
-                     azdev-test/mock-store--team-name)))
-    (should (equal
-             (azdev/insert-blank-before-matching-line store ids+level)
-             '((blank-line) (0 . 100) (1 . 11) (2 . 1) (2 . 2) (1 . 12) (2 . 3) (2 . 4))))))
-
-(ert-deftest test-insert-blank-line-before-feature ()
-  "Inserts blank before Epic entries by default"
-  (let* ((store (azdev-test/mock-store))
-         (ids+level (azdev/team-work-item-id+level
-                     store
-                     azdev-test/mock-store--team-name)))
-    (should (equal
-             (azdev/insert-blank-before-matching-line
-              store
-              ids+level
-              1
-              '("Feature"))
-             '((0 . 100) (blank-line) (1 . 11) (2 . 1) (2 . 2) (blank-line) (1 . 12) (2 . 3) (2 . 4))))))
 
 (ert-deftest test-print-from-teams-list-of-strings () ;
   "tree-from-teams should return a list of strings."
   (should (equal (azdev/team-work-item-id+level
                   (azdev-test/mock-store)
                   azdev-test/mock-store--team-name)
-                 '((0 . 100) (1 . 11) (2 . 1) (2 . 2) (1 . 12) (2 . 3) (2 . 4)))))
+                 '((100 0) (11 1) (1 2) (2 2) (12 1) (3 2) (4 2)))))
 
 ;; Fetch response from server
 ;; (setq azdev/resp (azdev/get-request
@@ -459,14 +435,6 @@ with an explicit path when provided as a string."
              (c)))))
 
 
-(ert-deftest azdev/test-string-list-for-task ()
-  (should
-   (equal
-    (azdev/string-for-task
-     (azdev-test/item! 100 nil "Work Item")
-     1)
-    "     :100:     Title#100                               state #100assigned-to ...Work Item      2016-03-25 ")))
-
 (ert-deftest azdev/test-display-mapping-dev-task ()
   (should
    (consp
@@ -496,7 +464,7 @@ with an explicit path when provided as a string."
   (should
    (equal
     (azdev/col-widths-to-ranges '(1 2 3))
-    '((1 . 1) (2 . 3) (4 . 6)))))
+    '((0 . 1) (1 . 3) (3 . 6)))))
 
 (ert-deftest azdev/test-string-for-task-display-mapping--default ()
   (should
@@ -516,9 +484,28 @@ with an explicit path when provided as a string."
   (should (equal nil
                  (azdev/area-path->team "project"))))
 
-(ert-deftest azdev/test-area-path->team-should-handle-nil-area-path ()
+(ert-deftest azdev-test/rowref-level ()
   (should (equal nil
                  (azdev/area-path->team nil))))
+
+(ert-deftest azdev-test/rowref-level ()
+  (should (equal "2"
+                 (azdev/rowref-level (azdev/rowref-create 1 "2")))))
+
+(ert-deftest azdev-test/rowref-data ()
+  (should (equal '(3 4)
+                 (azdev/rowref-data (azdev/rowref-create 1 2 '(3 4))))))
+
+(ert-deftest azdev-test/rowref-id ()
+  (should (equal 1
+                 (azdev/rowref-id (azdev/rowref-create 1 2 3)))))
+
+(ert-deftest azdev-test/rowref-data ()
+  "If no data and store provided, then look up by id in store."
+  (let ((store (azdev-test/mock-store)))
+    (should (equal (azdev/get-data store 1)
+                   (azdev/rowref-data (azdev/rowref-create 1 2)
+                                      store)))))
 
 (provide 'devops-client-tests)
 ;;; devops-client-tests.el ends here
