@@ -53,7 +53,13 @@ If item ID is not a number, then it's probably already an item. In which case, r
   "Return id, when given either an id or a data entry."
   (if (numberp id-or-data)
       id-or-data
-    (azdev/get-data store id-or-data)))
+    (azdev/get-field 'id id-or-data)))
+
+(defun azdev/create-ewoc-data (id level)
+  (if (and (numberp id)
+           (numberp level))
+      (cons id level)
+    (error "id should be a number")))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Variables
@@ -222,8 +228,9 @@ METHOD should be a string such as \"GET\" or \"POST\""
       (if (= status 200)
           (json-read-from-string
            (request-response-data response))
-        (user-error "Request failed: " (azdev/extract-message-from-error-response response)
-               " See azdev/last-response variable for more detail.")))))
+        (user-error
+         (concat "Request failed: " (azdev/extract-message-from-error-response response)
+                 " See azdev/last-response variable for more detail."))))))
 
 (defun azdev/extract-message-from-error-response (response)
   "Extract the message from a JSON devops error response"
@@ -322,9 +329,8 @@ the list is the function to call, and the remaining entries are the additional a
 
 (defun azdev/area-path->team (area-path)
   "Convert an AREA-PATH into a team name"
-  (car
-   (last
-    (s-split "\\\\" area-path))))
+  (nth 1
+       (s-split "\\\\" area-path)))
 
 (defun azdev/assoc-recursive (keys alist)
   "Recursively find KEYs in ALIST."
@@ -332,14 +338,18 @@ the list is the function to call, and the remaining entries are the additional a
     (setq alist (cdr (assoc (pop keys) alist))))
   alist)
 
+(defun azdev/work-item-parse-field (work-item-response response-map)
+  (-let* (((dest source-path func) response-map)
+         (resp-value (azdev/assoc-recursive source-path work-item-response))
+         (value (if (and  func resp-value (listp func))
+                    (apply (car func) resp-value (cdr func))
+                  resp-value)))
+    (cons dest value)))
+
 (defun azdev/work-item-parse (work-item-response)
   "Transform the downloaded json into a work item"
-  (mapcar (-lambda ((dest source-path func))
-            (let* ((resp-value (azdev/assoc-recursive source-path work-item-response))
-                   (value (if (and  func (listp func))
-                              (apply (car func) resp-value (cdr func))
-                             resp-value)))
-              (cons dest value)))
+  (mapcar (-lambda (response-map)
+            (azdev/work-item-parse-field work-item-response response-map))
           azdev/response-field-mappings))
 
 
@@ -897,13 +907,13 @@ The way to obtain columns is defined in azdev/string-for-task-display-mapping."
 ;;; Remote URLs
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun azdev/id->relation-url (id-or-data)
+(defun azdev/id->relation-url (id)
   "Return the URL of a work item for item ID-OR-DATA.
 ID-OR-DATA is either an item ID or an alist containing \
 field id."
   (concat
    "https://dev.azure.com/swansea-university/Swansea Academy of Advanced Computing/_workitems/edit/"
-   (number-to-string (azdev/id-or-data->id id-or-data))))
+   (number-to-string id)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; High-level functions
@@ -995,6 +1005,14 @@ field id."
   (ewoc-goto-node ewoc
                   (azdev/ewoc-get-node-by-id ewoc id))
   (point))
+
+(defun azdev/ewoc-delete-by-id (ewoc id)
+  "TODO: this could fail, leaving buffer in a readable state."
+  (with-current-buffer azdev/buffer
+    (setq inhibit-read-only t)
+    (ewoc-delete ewoc
+                 (azdev/ewoc-get-node-by-id ewoc id))
+    (setq inhibit-read-only nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Updating entries
@@ -1093,12 +1111,13 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
 
 (defun azdev/delete-work-item (store id-or-data)
   "Deleted the work item ID-OR-DATA from server and STORE."
-  (let ((id (azdev/id-or-data->id store id-or-data)))
-    (azdev/apply-server-changes
-     id
-     nil
-     "DELETE")
-    (ht-remove! store id)))
+  (let* ((id (azdev/id-or-data->id store id-or-data))
+        (item (azdev/apply-server-changes
+               id
+               nil
+               "DELETE")))
+    (ht-remove! store id)
+    item))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Interactive functions
@@ -1264,7 +1283,7 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
   (interactive "sTitle: \n")
 
   (if (< 0 (length title))
-      (-let* ((parent-id (azdev/pick-work-item "Parent: "))
+      (-let* ((parent-id (azdev/pick-work-item azdev/wi-ewoc "Parent: "))
              (type (azdev/pick-work-item-type))
              (item (azdev/create-new-child-item azdev/wi-store
                                                 title
@@ -1273,12 +1292,21 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
              (child-id (azdev/id-or-data->id azdev/wi-store item))
              (parent-node
               (azdev/ewoc-get-node-by-id azdev/wi-ewoc parent-id))
-             (((+ 1 level) . id)  (ewoc-data parent-node)))
+             ((level . id)  (ewoc-data parent-node)))
 
         (ewoc-enter-after
          azdev/wi-ewoc
          parent-node
-         (cons level child-id)))))
+         (azdev/create-ewoc-data
+          (+ 1 level) child-id)))))
+
+(defun azdev/remove-item ()
+  "Select a work item to delete."
+  (interactive)
+  (let ((id (azdev/pick-work-item azdev/wi-ewoc "Item to delete: ")))
+    (when (y-or-n-p (format "Delete: %s" id))
+        (azdev/delete-work-item azdev/wi-store id)
+        (azdev/ewoc-delete-by-id azdev/wi-ewoc id))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Creating nodes
@@ -1340,11 +1368,12 @@ the correct area path for child."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Ivy completion functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun azdev/pick-work-item-type ()
   (ivy-read "Feature: " (azdev/find/all-work-item-types)))
 
-(cl-defun azdev/pick-work-item (&optional (str "Pick work item: "))
+(cl-defun azdev/pick-work-item (ewoc &optional (str "Pick work item: "))
   (string-to-number
    (car
     (s-split "|"
@@ -1354,7 +1383,8 @@ the correct area path for child."
                                        (if (numberp key)
                                            (cons (format "%s |  %s" key (azdev/get-field 'title val))
                                                  key)))
-                                     azdev/wi-store)))))))
+                                     azdev/wi-store))
+                       :initial-input (number-to-string (azdev/ewoc-id-current-line ewoc)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Major mode
@@ -1363,6 +1393,7 @@ the correct area path for child."
 (defun setup-evil-keybindings ()
   (evil-local-set-key 'normal "j" 'azdev/next-entry)
   (evil-local-set-key 'normal "C" 'azdev/add-item)
+  (evil-local-set-key 'normal "d" 'azdev/remove-item)
   (evil-local-set-key 'normal "k" 'azdev/prev-entry)
   (evil-local-set-key 'normal "a" 'azdev/set-current-item-state--active) ; Set active state
   (evil-local-set-key 'normal "n" 'azdev/set-current-item-state--new) ; "Set new

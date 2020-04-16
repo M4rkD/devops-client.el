@@ -508,5 +508,17 @@ with an explicit path when provided as a string."
   (should
    (consp (azdev/all-area-paths azdev/wi-store))))
 
+(ert-deftest azdev/test-area-path->team-should-extract-team ()
+  (should (equal "team"
+                 (azdev/area-path->team "project\\team"))))
+
+(ert-deftest azdev/test-area-path->team-should-handle-empty-teams ()
+  (should (equal nil
+                 (azdev/area-path->team "project"))))
+
+(ert-deftest azdev/test-area-path->team-should-handle-nil-area-path ()
+  (should (equal nil
+                 (azdev/area-path->team nil))))
+
 (provide 'devops-client-tests)
 ;;; devops-client-tests.el ends here
