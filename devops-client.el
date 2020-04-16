@@ -49,16 +49,22 @@ If item ID is not a number, then it's probably already an item. In which case, r
     (azdev/store-add azdev/wi-store id val)
     val))
 
+(defun azdev/id-or-data->id (store id-or-data)
+  "Return id, when given either an id or a data entry."
+  (if (numberp id-or-data)
+      id-or-data
+    (azdev/get-data store id-or-data)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Variables
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defvar azdev/base-url "https://dev.azure.com/swansea-university/_apis"
-  "The base url of the organisation.")
-
-
 (defvar azdev/default-project "Swansea%20Academy%20of%20Advanced%20Computing"
   "The default project.")
+
+(defvar azdev/base-url (format "https://dev.azure.com/swansea-university/%s/_apis"
+                               azdev/default-project)
+  "The base url of the organisation.")
 
 (defvar azdev/query-chunk-size 200
   "The maximum number of work items to fetch in one go.")
@@ -187,25 +193,38 @@ Otherwise return the RESPONSE, unchanged."
 Return parsed json data as an alist.
 METHOD should be a string such as \"GET\" or \"POST\""
   (let* ((url (concat azdev/base-url uri))
-         (content-type (if (string= method "PATCH")
+         (content-type (if (or (string= method "PATCH")
+                               (string= method "POST"))
                            "application/json-patch+json"
                          "application/json")))
     (message "Calling: [%S] %s" method url)
-    (request-response-data
-    (if data
-        (request
-          url
-          :type method
-          :parser 'json-read
-          :headers (default-headers content-type)
-          :sync t
-          :data (json-encode data))
-      (request
-        url
-        :type method
-        :parser 'json-read
-        :headers (default-headers content-type)
-        :sync t)))))
+    (let* ((response (if data
+                        (request
+                          url
+                          :type method
+                          :headers (default-headers content-type)
+                          :sync t
+                          :data (json-encode data))
+                      (request
+                        url
+                        :type method
+                        :headers (default-headers content-type)
+                        :sync t)))
+          (status (request-response-status-code response)))
+
+      ;; set the last response globally for ease of debugging
+      (setq azdev/last-response response)
+      (setq azdev/last-response-request (list url method data))
+
+      (if (= status 200)
+          (json-read-from-string
+           (request-response-data response))
+        (error "request failed: response set to azdev/last-response")))))
+
+(defun azdev/handle-request-error (request)
+  "Default handler for errors in the request to devops server."
+  (setq azdev/last-failed-request request)
+  )
 
 (defun azdev/get-request (uri)
   "GET from URI of the current project."
@@ -325,6 +344,17 @@ the list is the function to call, and the remaining entries are the additional a
     azdev/query-chunk-size
     ids)))
 
+(defun azdev/update-work-item! (id-or-data)
+  "Fetch work item specified by ID-OR-DATA from \
+the remote service and update in store.
+ID-OR-DATA can be a work item id or a data alist \
+with a field 'id"
+  (let* ((id (azdev/id-or-data->id azdev/wi-store id-or-data))
+         (items (azdev/fetch-work-items (list id)))
+         (item (car items)))
+    (azdev/store-add azdev/wi-store id item)
+    item))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Query work items
@@ -409,6 +439,14 @@ The id is extracted as the last portion of the url."
 
 (defun azdev/find/team-names (store name)
   (azdev/unique-values-of-key store 'team))
+
+(defun azdev/find/all-work-item-types ()
+  (-filter #'identity
+           (azdev/unique-values-of-key azdev/wi-store 'work-item-type)))
+
+(defun azdev/find/all-area-paths (store)
+  "Fetches all area paths by inspecting STORE"
+ (azdev/unique-values-of-key store 'area-path))
 
 (defun azdev/find/team-names-random-order (store)
   (require 'cookie1)
@@ -848,7 +886,7 @@ The way to obtain columns is defined in azdev/string-for-task-display-mapping."
 ;;; Remote URLs
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun azdev/construct-work-item-url (item-id)
+(defun azdev/id->relation-url (item-id)
   "Return the URL of a work item given the ITEM-ID."
   (concat
    "https://dev.azure.com/swansea-university/Swansea Academy of Advanced Computing/_workitems/edit/"
@@ -931,6 +969,20 @@ The way to obtain columns is defined in azdev/string-for-task-display-mapping."
 (defun azdev/ewoc-current-id (ewoc)
   (car (azdev/ewoc-current-id+node ewoc)))
 
+(defun azdev/ewoc-all-ids (ewoc)
+  "Returns a list of all ids in EWOC, in the order they appear in the buffer."
+  (mapcar #'cdr (ewoc-collect ewoc (lambda (v) t))))
+
+(defun azdev/ewoc-get-node-by-id (ewoc id)
+  (ewoc-nth ewoc (-elem-index id (azdev/ewoc-all-ids azdev/wi-ewoc))))
+
+(defun azdev/ewoc-goto-by-id (ewoc id)
+  "Moves point to the node of EWOC identitified by ID."
+  (pop-to-buffer azdev/buffer)
+  (ewoc-goto-node ewoc
+                  (azdev/ewoc-get-node-by-id ewoc id))
+  (point))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Updating entries
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -944,7 +996,7 @@ UPDATE-ITEM-F take the item data, and return a list of changes."
     (message (pp changes))
     (when changes
       (azdev/store-add store item-id
-               (azdev/upload-changes-to-work-item item-id changes))
+               (azdev/apply-server-changes item-id changes))
       (ewoc-invalidate ewoc node))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -981,65 +1033,88 @@ OPERATION is one of \"replace\", \"delete\" etc.
 (defun azdev/multi-specs-to-update-remote (changes)
   "Returns a vector of multiple specs from list of CHANGES.
 CHANGES is of the form:
-  '((field . new-value)
-    (another-field . new-value))
+  '((field new-value operation)
+    (another-field new-value operation))
 where fields are specified with either their local representation as a symbol
-(e.g. title) or a full remote path as a string (e.g. \"fields/System.AssignedTo \" )."
+(e.g. title) or a full remote path as a string (e.g. \"fields/System.AssignedTo \" ).
+If operation is not provided, it defaults to replace"
   (apply #'vector
          (mapcar
           (-lambda ((field value operation))
             (azdev/spec-to-update-remote field value (or operation "replace")))
           changes)))
 
-(defun azdev/upload-changes-to-work-item (work-item-id changes)
+(cl-defun azdev/apply-server-changes (work-item-id changes &optional (method "POST") )
   "Apply CHANGES to work item with WORK-ITEM-ID.
 Return the new parsed work item.
 CHANGES is as specified in azdev/multi-spacs-to-update-remote"
   (azdev/work-item-parse
-   (azdev/dispatch-patch-request (concat
-                                  "/wit/workitems/"
-                                  (number-to-string work-item-id)
-                                  "?api-version=5.1&$expand=All&bypassRules=true")
-                                 (azdev/multi-specs-to-update-remote changes))))
+   (azdev/--dispatch-request (format
+                              "/wit/workitems/%s?api-version=5.1&$expand=All&bypassRules=true"
+                              work-item-id)
+                             method
+                             (azdev/multi-specs-to-update-remote changes))))
+
+(defun azdev/spec-area-path (area-path)
+  "Devops JSON specification for operation to set the AREA PATH."
+  (if (-contains? (azdev/find/all-area-paths azdev/wi-store)
+                  area-path)
+      `(area-path ,area-path "add")
+    (error "Invalid area path " area-path)))
+
+
+(defun azdev/spec-add-parent (parent-id)
+  "Devops JSON specification for operation to add parent link."
+  `("/relations/-"
+    ((rel . "System.LinkTypes.Hierarchy-Reverse")
+     (url .  ,(azdev/id->relation-url parent-id)))
+    "add"))
+
+(defun azdev/spec-add-child (child-id)
+  "Devops JSON specification for operation to add child link."
+  `("/relations/-"
+    ((rel . "System.LinkTypes.Hierarchy-Forward")
+     (url .  ,(azdev/id->relation-url child-id)))
+    "add"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Interactive functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defvar team-order (vector
-                  ;;"Computational Psychology Masters"
-                  "CFD parallel preprocessor"
-                  "SOMBRERO"
-                  ;; "FASTSUM"
-                  ;; "LLR Thirring model"
-                  ;;"Professional development"
-                  "Maxwell-Nefem Code"
-                  "Marinos Manolesos"
-                  ;;"Coastal"
-                  "Richard ORorke"
-                  ;;"Sp(2N) BSM"
-                  ;; "Cluster prioritisation"
-                  "Collaboration with Don Webber"
-                  ;;"Swansea Academy of Advanced Computing"
-                  ;;"Training"
-                  ;; "Many-flavour QCD"
-                  ;;"Support activities"
-                  "AIMLAC CDT"
-                  ;;"Supercomputing Wales administration"
-                  "Mahsa Mokhtari"
-                  "FEA for Multiphysics"
-                  "Performance Reporting Tools"
-                  "Monte Carlo spintronics"
-                  "CellProfiler"
-                  "HiRep"
-                  ;; "AerOpt"
-                  "DLMUSN"
-                  "NLP Translation Toolkit"
-                  "DWF Thirring model"
-                  ;;"SA2C internal operations"
-                  ;;"FSI wrapper"
-                  ;;"Outreach"
-                  ))
+                    ;;"Computational Psychology Masters"
+                    "CFD parallel preprocessor"
+                    "SOMBRERO"
+                    ;; "FASTSUM"
+                    ;; "LLR Thirring model"
+                    ;;"Professional development"
+                    "Maxwell-Nefem Code"
+                    "Marinos Manolesos"
+                    ;;"Coastal"
+                    "Richard ORorke"
+                    ;;"Sp(2N) BSM"
+                    ;; "Cluster prioritisation"
+                    "Collaboration with Don Webber"
+                    ;;"Swansea Academy of Advanced Computing"
+                    ;;"Training"
+                    ;; "Many-flavour QCD"
+                    ;;"Support activities"
+                    "AIMLAC CDT"
+                    ;;"Supercomputing Wales administration"
+                    "Mahsa Mokhtari"
+                    "FEA for Multiphysics"
+                    "Performance Reporting Tools"
+                    "Monte Carlo spintronics"
+                    "CellProfiler"
+                    "HiRep"
+                    ;; "AerOpt"
+                    "DLMUSN"
+                    "NLP Translation Toolkit"
+                    "DWF Thirring model"
+                    ;;"SA2C internal operations"
+                    ;;"FSI wrapper"
+                    ;;"Outreach"
+                    ))
 
 (defun devops-draw ()
   (interactive)
@@ -1076,11 +1151,8 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
   (devops-draw))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Mapping behaviour to updates
+;;; Update definitions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-; For now just hardcode the behaviour.
-; Later this should be a major mode.
 
 (defun azdev/update-item/set-state-new (item)
   '((state "New")))
@@ -1094,6 +1166,10 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
 (defun azdev/update-item/set-title (item)
   `((title ,(read-from-minibuffer "Title: "
                                     (azdev/get-field 'title item)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Interactive functions to bind to keys
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun azdev/next-entry ()
   (interactive)
@@ -1149,7 +1225,7 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
 (defun azdev/visit-current-item-www ()
   (interactive)
   (let* ((item-id (azdev/ewoc-current-id azdev/wi-ewoc))
-         (url (azdev/construct-work-item-url item-id)))
+         (url (azdev/id->relation-url item-id)))
     (message (concat "Visiting: " url))
     (browse-url url)))
 
@@ -1161,26 +1237,127 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
   (interactive)
   (my/pdf-print-buffer-with-faces "~/Desktop/devops.devops"))
 
+(defun azdev/add-item (title)
+  (interactive "sTitle: \n")
+
+  (if (< 0 (length title))
+      (-let* ((parent-id (azdev/pick-work-item "Parent: "))
+             (type (azdev/pick-work-item-type))
+             (item (azdev/create-new-child-item azdev/wi-store
+                                                title
+                                                parent-id
+                                                type))
+             (child-id (azdev/id-or-data->id azdev/wi-store item))
+             (parent-node
+              (azdev/ewoc-get-node-by-id azdev/wi-ewoc parent-id))
+             ((level . id) (ewoc-data parent-node)))
+
+        (ewoc-enter-after
+         azdev/wi-ewoc
+         parent-node
+         (cons level child-id)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Creating nodes
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun azdev/create-blank-work-item (type title)
+  "Return a newly create work item from the server \
+of given TYPE with specified TITLE."
+  (if (-contains? (azdev/find/all-work-item-types)
+                  type)
+      (azdev/apply-server-changes (s-replace " " "%20" (concat "$" type))
+                                  `((title ,title "add")))
+    (error "Invalid Type" type)))
+
+(defun azdev/attach-child-to-parent (child parent)
+  "Takes two data items, and connectes them, also setting
+child to be in the area path of parent.
+Return the new child."
+  (let ((child-id (azdev/get-field 'id child))
+        (parent-id (azdev/get-field 'id parent))
+        (parent-area-path (azdev/get-field 'area-path parent)))
+    (azdev/apply-server-changes child-id
+                                (list (azdev/spec-add-parent parent-id)
+                                      (azdev/spec-area-path parent-area-path))
+                                "PATCH")))
+
+(defun azdev/assign-child-a-parent (child parent)
+  "Takes two data items, and connectes them, also setting
+child to be in the area path of parent.
+Return a cons cell of child and parent.
+Unlike the `attach-child-to-parent', this requires
+in two API calls. "
+  (let ((child-id (azdev/get-field 'id child))
+        (parent-id (azdev/get-field 'id parent))
+        (parent-area-path (azdev/get-field 'area-path parent))
+        ;; add child to parent
+        (child
+         (azdev/apply-server-changes parent-id
+                                     (list (azdev/spec-add-child child-id))
+                                     "PATCH"))
+        (parent
+         ;; set parent to have the same path as child
+         (azdev/apply-server-changes child-id
+                                     (list (azdev/spec-area-path parent-area-path))
+                                     "PATCH")))
+    (cons child parent)))
+
+(defun azdev/create-new-child-item (store title parent type)
+  "Create and add to STORE a new item which TITLE, \
+PARENT and TYPE.
+Parent is updated before creating child, in order to ensure
+the correct area path for child."
+  (azdev/store-store
+   store
+   (azdev/attach-child-to-parent
+    (azdev/create-blank-work-item type title)
+    (azdev/update-work-item! parent))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Ivy completion functions
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun azdev/pick-work-item-type ()
+  (ivy-read "Feature: " (azdev/find/all-work-item-types)))
+
+(cl-defun azdev/pick-work-item (&optional (str "Pick work item: "))
+  (string-to-number
+   (car
+    (s-split "|"
+             (ivy-read str
+                       (delq nil
+                             (ht-map (lambda (key val)
+                                       (if (numberp key)
+                                           (cons (format "%s |  %s" key (azdev/get-field 'title val))
+                                                 key)))
+                                     azdev/wi-store)))))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Major mode
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun setup-evil-keybindings ()
   (evil-local-set-key 'normal "j" 'azdev/next-entry)
+  (evil-local-set-key 'normal "C" 'azdev/add-item)
   (evil-local-set-key 'normal "k" 'azdev/prev-entry)
   (evil-local-set-key 'normal "a" 'azdev/set-current-item-state--active) ; Set active state
-  (evil-local-set-key 'normal "n" 'azdev/set-current-item-state--new)    ; "Set new
+  (evil-local-set-key 'normal "n" 'azdev/set-current-item-state--new) ; "Set new
   (evil-local-set-key 'normal "c" 'azdev/set-current-item-state--closed) ; "Set closed state"
   (evil-local-set-key 'normal (kbd "<tab>") 'azdev/set-current-item-state--cycle) ; "Set closed state"
   (evil-local-set-key 'normal (kbd "TAB") 'azdev/set-current-item-state--cycle) ; "Set closed state"
-  (evil-local-set-key 'normal "t" 'azdev/set-current-item-title)         ; Set title
-  (evil-local-set-key 'normal "i" 'azdev/fetch-current-id)               ; Print id
-  (evil-local-set-key 'normal "v" 'azdev/visit-current-item-www)         ; Visit
+  (evil-local-set-key 'normal "t" 'azdev/set-current-item-title) ; Set title
+  (evil-local-set-key 'normal "i" 'azdev/fetch-current-id)       ; Print id
+  (evil-local-set-key 'normal "v" 'azdev/visit-current-item-www) ; Visit
   (evil-local-set-key 'normal "p" 'azdev/print-to-pdf))                   ; Print
 
 (define-derived-mode azure-devops-mode special-mode "Azure Devops"
   "jor mode for interacting with azure devops. "
   (setup-evil-keybindings))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Starter kits
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun add-doom-mapping ()
   "Add a keybinding in doom emacs for devops drawing"
@@ -1188,6 +1365,7 @@ CHANGES is as specified in azdev/multi-spacs-to-update-remote"
   (map! :leader
         :desc "Devops Draw"
         :n "dd" #'devops-draw))
+
 
 (provide 'devops)
 ;;; devops.el ends here

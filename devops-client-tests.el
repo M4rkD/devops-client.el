@@ -503,5 +503,10 @@ with an explicit path when provided as a string."
    (equal
     (azdev/get-column-ranges-for-item (azdev-test/item!)))))
 
+(ert-deftest azdev/test-all-area-path ()
+  "All area paths should return return a list."
+  (should
+   (consp (azdev/all-area-paths azdev/wi-store))))
+
 (provide 'devops-client-tests)
 ;;; devops-client-tests.el ends here
