@@ -44,6 +44,11 @@ If item ID is not a number, then it's probably already an item. In which case, r
 (defun azdev/get-field (id data)
   (alist-get id data))
 
+(defun azdev/store-store (store val)
+  (let ((id (azdev/get-field 'id val)))
+    (azdev/store-add azdev/wi-store id val)
+    val))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Variables
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
