@@ -1041,11 +1041,10 @@ field id."
 
 (defun azdev/ewoc-delete-by-id (ewoc id)
   "TODO: this could fail, leaving buffer in a readable state."
+(let ((inhibit-read-only t))
   (with-current-buffer azdev/buffer
-    (setq inhibit-read-only t)
     (ewoc-delete ewoc
-                 (azdev/ewoc-get-node-by-id ewoc id))
-    (setq inhibit-read-only nil)))
+                (azdev/ewoc-get-node-by-id ewoc id)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Updating entries
